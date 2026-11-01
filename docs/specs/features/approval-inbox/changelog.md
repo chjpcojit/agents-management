@@ -1,5 +1,20 @@
 # Changelog — approval-inbox
 
+## v1.2 — 2026-11-01
+
+Hoãn push notification: GĐ1 chỉ duyệt trên web.
+
+- requirements.md: R-13 removed; out of scope thêm push và risk theo `ClassifyRisk`; bỏ Q-2 khỏi open questions
+- design.md: `internal/adapter/notify` chuyển sang deferred (TD-4); bỏ dòng test plan của R-13
+- tasks.md: bỏ item push, thêm vào Deferred
+- gherkin/approval-decision.feature: bỏ scenario R-13
+- assumptions.md: no change needed, checked
+- tech-debt.md: thêm TD-4
+- Resolved: Q-2 → hoãn push, website trước, duyệt qua SSE (Đức, 2026-11-01)
+- Upstream: unchanged
+- Reason: Đức "tạm thời không cần đến mobile anh sẽ làm website trước"
+- Follow-ups outside this folder: none
+
 ## v1.1 — 2026-11-01
 
 Chốt API inbox là REST + SSE, thêm criteria cho các endpoint và kênh event.

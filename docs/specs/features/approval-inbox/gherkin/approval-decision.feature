@@ -1,4 +1,4 @@
-# Source: ../requirements.md v1.1
+# Source: ../requirements.md v1.2
 Feature: Quyết định yêu cầu duyệt
 
   Background:
@@ -89,12 +89,6 @@ Feature: Quyết định yêu cầu duyệt
     And "agent-b" có yêu cầu hết hạn sau 50 giây
     When người dùng mở inbox
     Then inbox hiển thị yêu cầu của "agent-a" trước "agent-b"
-
-  # R-13
-  @wip
-  Scenario: Yêu cầu rủi ro cao gửi thông báo
-    When agent "agent-a" xin chạy tool "Bash" mức rủi ro "high"
-    Then thiết bị của người dùng nhận thông báo duyệt
 
   # R-14
   Scenario: Xem chi tiết trước khi duyệt

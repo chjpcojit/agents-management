@@ -45,8 +45,7 @@ Inbox duyệt tập trung cho mọi agent: agent xin chạy tool hoặc chủ đ
 ### Inbox cho user (Prospective)
 
 - R-12: WHEN client gọi `GET /approvals?status=pending`, THE SYSTEM SHALL trả 200 với danh sách approval `pending` của mọi agent, deadline gần nhất trước, mỗi phần tử có `id`, `agent_id`, `kind`, `tool_name`, `risk`, `created_at`, `deadline`. Tool input không nằm trong danh sách. (platform)
-- R-13: WHEN có approval mới với risk `high`, THE SYSTEM SHALL gửi push notification tới thiết bị của user.
-  > ⚠️ Not confirmed: kênh push GĐ1 (Web Push, Telegram, hay cả hai) — chặn adapter notify. (Q-2)
+- ~~R-13: WHEN có approval mới với risk `high`, THE SYSTEM SHALL gửi push notification tới thiết bị của user.~~ Removed in v1.2: Đức hoãn push notification, GĐ1 chỉ duyệt trên web qua SSE (R-16…R-18); xem TD-4.
 - R-14: WHEN client gọi `GET /approvals/{id}`, THE SYSTEM SHALL trả 200 với approval đầy đủ, kể cả tool input, để người duyệt xem trước khi quyết định; id không tồn tại trả 404. (platform)
 - R-15: WHEN client gọi `POST /approvals/{id}/decision` với `decision` (`allow`/`deny`) và `reason` tùy chọn, THE SYSTEM SHALL áp dụng R-4…R-9 và trả, then:
   - on success: 200 với approval sau khi quyết định;
@@ -82,10 +81,10 @@ Inbox duyệt tập trung cho mọi agent: agent xin chạy tool hoặc chủ đ
 
 - Agent gửi yêu cầu vào inbox qua MCP: [agent-runtime](../agent-runtime/requirements.md).
 - Lưu bền (SQLite/Postgres): TD-1.
-- Đánh dấu risk tự động theo pattern lệnh: feature sau, hiện agent-runtime truyền risk vào.
+- Đánh dấu risk tự động theo pattern lệnh: feature sau; hiện `domain.ClassifyRisk` xếp theo tên tool (đọc là low, còn lại high).
+- Push notification (Web Push, Telegram) và app mobile: hoãn, TD-4.
 
 ## Open questions
 
 | ID | Câu hỏi | Owner | Liên quan |
 |---|---|---|---|
-| Q-2 | Kênh push GĐ1? Đề xuất: Telegram trước (không cần HTTPS public) | Đức | R-13 |

@@ -5,7 +5,7 @@
 | Item | Value |
 |---|---|
 | Overall | In progress |
-| Spec | v1.1 |
+| Spec | v1.2 |
 | Profile | be |
 | Design | design.md |
 | A — static | 2026-11-01: `make lint` → 0 issues; depguard thử import sai domain → platform và usecase → adapter, đều bị báo |
@@ -14,7 +14,7 @@
 | D — owner check | not yet |
 | E — e2e | not written |
 | Branch / commit | `chore/clean-architecture-skeleton` |
-| Open | Q-2, TD-1, TD-2, TD-3 |
+| Open | TD-1, TD-2, TD-3, TD-4 |
 | Knowledge | — |
 
 Verification method: A `make lint`, B `make test`, C `make run` + curl. Môi trường: container cloud, không có DB, không có login Claude.
@@ -43,8 +43,8 @@ Verification method: A `make lint`, B `make test`, C `make run` + curl. Môi tr�
 - [ ] Service phát event sau khi lưu thành công — verify: (B) test use case với fake publisher
 - [ ] Handler list + get + decide, map lỗi sang RFC 7807 — verify: (B) `TestListPendingApprovals`, `TestGetApproval`, `TestDecideHandlerStatusMapping`. Không bật ngoài loopback khi TD-3 còn mở
 - [ ] SSE `/events` với heartbeat và `Last-Event-ID` — verify: (B) `TestSSEPublishAndReplay`, (C) curl `-N`
-- [ ] Push notification cho risk `high` — blocked by Q-2
 
 ## Deferred
 
+- Push notification cho risk `high`: hoãn theo quyết định của Đức (TD-4).
 - MCP `approval_prompt` nối agent vào inbox: [agent-runtime](../agent-runtime/tasks.md).

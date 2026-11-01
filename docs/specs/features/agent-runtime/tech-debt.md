@@ -2,5 +2,8 @@
 
 | ID | Debt | Level | Why taken | Impact / risk | Fix | Status |
 |---|---|---|---|---|---|---|
-| TD-1 | `internal/adapter/runtime/claudecli` chỉ có package doc | High | Skeleton trước, implement trong spike | Chưa chạy được agent | Phase 1–2 | Open |
-| TD-2 | `internal/adapter/mcpbus` chỉ có package doc | High | Chờ schema permission prompt tool (Q-2) | Chưa duyệt quyền được | Phase 3 | Open |
+| TD-1 | `internal/adapter/runtime/claudecli` chỉ có package doc | High | Skeleton trước, implement trong spike | Chưa chạy được agent | Phase 1–2 | Resolved 2026-11-01 (`feat/agent-runtime-spike`) |
+| TD-2 | `internal/adapter/mcpbus` chỉ có package doc | High | Chờ schema permission prompt tool (Q-2) | Chưa duyệt quyền được | Phase 3 | Resolved 2026-11-01 (`feat/agent-runtime-spike`, chuyển sang `internal/delivery/mcpbus`) |
+| TD-3 | `send_message` chỉ chuyển cho `MessageSink`, chưa lưu, chưa đánh thức agent nhận | Medium | Office bus là feature sau | Agent tưởng tin đã gửi | Feature office-bus | Open |
+| TD-4 | Runner được `cmd/spike` gọi trực tiếp, chưa có port `AgentRuntime`; còn `ForceSend` chỉ để đo Q-1 | Medium | Chưa biết hành vi thật để chốt port | Use case chưa dùng được runner | Sau T1–T15: thêm port, bỏ `ForceSend` hoặc thay bằng queue | Open |
+| TD-5 | `AwaitDecision` poll repository mỗi 250ms | Low | Repository in-memory, chưa có event bus | Trễ tối đa 250ms, tốn CPU nhẹ khi nhiều approval chờ | Notify qua `EventPublisher` của approval-inbox | Open |

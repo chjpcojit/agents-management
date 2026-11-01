@@ -8,6 +8,12 @@ linters:
     - noctx
     - misspell
   settings:
+    errcheck:
+      # Writes to the terminal have nowhere to report failure. / Ghi ra terminal không có chỗ nào để báo lỗi.
+      exclude-functions:
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - fmt.Fprint
     depguard:
       rules:
         # Domain is the core: it imports nothing internal. / Domain là lõi: không import gì internal.
@@ -34,7 +40,7 @@ linters:
               desc: use cases get config values injected, not the config package
         # Delivery talks to use cases, never to adapters. / Delivery gọi use case, không gọi adapter.
         delivery:
-          files: ["**/internal/delivery/**"]
+          files: ["**/internal/delivery/**", "!$test"]
           deny:
             - pkg: github.com/chjpcojit/agents-management/internal/adapter
               desc: delivery must go through use cases
