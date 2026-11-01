@@ -1,0 +1,50 @@
+version: "2"
+linters:
+  enable:
+    - depguard
+    - errorlint
+    - gosec
+    - bodyclose
+    - noctx
+    - misspell
+  settings:
+    depguard:
+      rules:
+        # Domain is the core: it imports nothing internal. / Domain là lõi: không import gì internal.
+        domain:
+          files: ["**/internal/domain/**"]
+          deny:
+            - pkg: github.com/chjpcojit/agents-management/internal/usecase
+              desc: domain must not depend on use cases
+            - pkg: github.com/chjpcojit/agents-management/internal/adapter
+              desc: domain must not depend on adapters
+            - pkg: github.com/chjpcojit/agents-management/internal/delivery
+              desc: domain must not depend on delivery
+            - pkg: github.com/chjpcojit/agents-management/internal/platform
+              desc: domain must not depend on platform
+        # Use cases see domain and ports only. / Use case chỉ thấy domain và port.
+        usecase:
+          files: ["**/internal/usecase/**", "!$test"]
+          deny:
+            - pkg: github.com/chjpcojit/agents-management/internal/adapter
+              desc: use cases depend on ports, not adapters
+            - pkg: github.com/chjpcojit/agents-management/internal/delivery
+              desc: use cases must not depend on delivery
+            - pkg: github.com/chjpcojit/agents-management/internal/platform
+              desc: use cases get config values injected, not the config package
+        # Delivery talks to use cases, never to adapters. / Delivery gọi use case, không gọi adapter.
+        delivery:
+          files: ["**/internal/delivery/**"]
+          deny:
+            - pkg: github.com/chjpcojit/agents-management/internal/adapter
+              desc: delivery must go through use cases
+        # Adapters never call delivery. / Adapter không gọi delivery.
+        adapter:
+          files: ["**/internal/adapter/**"]
+          deny:
+            - pkg: github.com/chjpcojit/agents-management/internal/delivery
+              desc: adapters must not depend on delivery
+formatters:
+  enable:
+    - gofmt
+    - goimports
