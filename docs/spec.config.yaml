@@ -1,0 +1,16 @@
+# Project overlay for the spec skill / Cấu hình dự án cho skill spec
+spec_root: docs/specs/features
+folder_case: kebab
+language: vi                       # tiếng Việt, giữ nguyên thuật ngữ kỹ thuật tiếng Anh
+architecture_rules: CLAUDE.md
+docs_index: docs/README.md
+example_spec: docs/specs/features/approval-inbox
+ticket_pattern: "[A-Z]+-[0-9]+"
+platforms:
+  - { path: ./, profile: be }
+verify:
+  be:
+    A: make lint
+    B: make test
+    C: make run + curl localhost:8787/healthz
+    D: owner chạy trên máy cá nhân với login Claude Max
