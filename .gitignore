@@ -4,3 +4,7 @@
 .env
 .env.*
 !.env.example
+
+# Raw NDJSON from spike runs: review before committing any of it.
+# NDJSON gốc từ spike: xem lại trước khi commit.
+docs/spike-samples/

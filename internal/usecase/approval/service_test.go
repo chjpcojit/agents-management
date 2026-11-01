@@ -132,3 +132,52 @@ func TestExpireDue(t *testing.T) {
 		t.Fatalf("second should still be decidable, got %v", err)
 	}
 }
+
+func TestAwaitDecisionReturnsDecision(t *testing.T) {
+	clk := &fakeClock{now: time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)}
+	svc, _ := approval.NewService(memory.NewApprovalRepository(), clk, &seqIDs{}, time.Minute, nil, approval.WithPollInterval(5*time.Millisecond))
+	ctx := context.Background()
+	a, _ := svc.Request(ctx, toolRequest())
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		_, _ = svc.Decide(ctx, a.ID, domain.DecisionDeny, "duc", "no")
+	}()
+	got, err := svc.AwaitDecision(ctx, a.ID)
+	if err != nil || got.Status != domain.ApprovalDenied || got.Reason != "no" {
+		t.Fatalf("got %+v err %v", got, err)
+	}
+}
+
+func TestAwaitDecisionExpiresByItself(t *testing.T) {
+	clk := &fakeClock{now: time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)}
+	svc, _ := approval.NewService(memory.NewApprovalRepository(), clk, &seqIDs{}, time.Minute, nil, approval.WithPollInterval(5*time.Millisecond))
+	ctx := context.Background()
+	a, _ := svc.Request(ctx, toolRequest())
+	go func() { time.Sleep(20 * time.Millisecond); clk.Advance(time.Minute) }()
+	got, err := svc.AwaitDecision(ctx, a.ID)
+	if err != nil || got.Status != domain.ApprovalExpired || got.IsAllowed() {
+		t.Fatalf("got %+v err %v", got, err)
+	}
+}
+
+func TestAwaitDecisionHonoursContext(t *testing.T) {
+	svc, _ := newService(t)
+	a, _ := svc.Request(context.Background(), toolRequest())
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if _, err := svc.AwaitDecision(ctx, a.ID); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("want deadline exceeded, got %v", err)
+	}
+}
+
+func TestPending(t *testing.T) {
+	svc, _ := newService(t)
+	ctx := context.Background()
+	a, _ := svc.Request(ctx, toolRequest())
+	b, _ := svc.Request(ctx, toolRequest())
+	_, _ = svc.Decide(ctx, b.ID, domain.DecisionAllow, "duc", "")
+	got, err := svc.Pending(ctx)
+	if err != nil || len(got) != 1 || got[0].ID != a.ID {
+		t.Fatalf("want only %s pending, got %+v err %v", a.ID, got, err)
+	}
+}

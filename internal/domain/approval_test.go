@@ -113,3 +113,15 @@ func TestExpire(t *testing.T) {
 		t.Fatal("expire must be idempotent")
 	}
 }
+
+func TestClassifyRisk(t *testing.T) {
+	for tool, want := range map[string]domain.RiskLevel{
+		"Read": domain.RiskLow, "Grep": domain.RiskLow,
+		"Bash": domain.RiskHigh, "Write": domain.RiskHigh, "Edit": domain.RiskHigh, "WebFetch": domain.RiskHigh,
+		"mcp__x__y": domain.RiskHigh, "": domain.RiskHigh,
+	} {
+		if got := domain.ClassifyRisk(tool); got != want {
+			t.Errorf("%q: want %s, got %s", tool, want, got)
+		}
+	}
+}

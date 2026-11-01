@@ -193,3 +193,17 @@ func (a Approval) IsAllowed() bool {
 func (a Approval) IsTerminal() bool {
 	return a.Status != ApprovalPending
 }
+
+// ClassifyRisk marks tools that change the machine or reach the network as high risk.
+// Unknown tools, including MCP tools, default to high: fail closed.
+//
+// ClassifyRisk đánh dấu tool thay đổi máy hoặc truy cập mạng là rủi ro cao.
+// Tool lạ, kể cả MCP tool, mặc định là cao: fail closed.
+func ClassifyRisk(toolName string) RiskLevel {
+	switch toolName {
+	case "Read", "Glob", "Grep", "LS", "TodoWrite", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet":
+		return RiskLow
+	default:
+		return RiskHigh
+	}
+}

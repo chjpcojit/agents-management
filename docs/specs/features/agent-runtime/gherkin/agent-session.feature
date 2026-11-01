@@ -1,4 +1,4 @@
-# Source: ../requirements.md v1.0
+# Source: ../requirements.md v1.1
 @wip
 Feature: Chạy agent qua claude -p
 
@@ -17,8 +17,15 @@ Feature: Chạy agent qua claude -p
   # R-3
   Scenario: Auth lỗi làm agent thất bại
     Given owner chưa đăng nhập Claude
-    When orchestrator khởi động agent "agent-a"
+    And agent "agent-a" đang rảnh
+    When người dùng giao việc đầu tiên cho agent "agent-a"
     Then agent "agent-a" ở trạng thái thất bại với lý do xác thực
+
+  # R-3
+  Scenario: Agent im lặng sau khi nhận việc
+    Given agent "agent-a" đang rảnh
+    When người dùng giao một việc và agent không trả về gì trong 90 giây
+    Then agent "agent-a" ở trạng thái thất bại với lý do không có phản hồi
 
   # R-4
   Scenario: Giao việc cho agent rảnh
@@ -99,3 +106,9 @@ Feature: Chạy agent qua claude -p
     Given agent "agent-a" đã làm vài việc
     When người dùng gửi lệnh nén ngữ cảnh
     Then người dùng thấy số token trước khi nén
+
+  # SEC-4
+  Scenario: Agent không giả danh được agent khác
+    Given agent "agent-a" và agent "agent-b" cùng chạy
+    When agent "agent-a" gọi công cụ duyệt bằng địa chỉ của agent "agent-b"
+    Then yêu cầu bị từ chối và không có yêu cầu duyệt nào được mở cho agent "agent-b"

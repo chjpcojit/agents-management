@@ -21,12 +21,26 @@ type Service struct {
 	clock   port.Clock
 	ids     port.IDGenerator
 	timeout time.Duration
+	poll    time.Duration
 	log     *slog.Logger
+}
+
+// Option tunes a Service. / Option tinh chỉnh Service.
+type Option func(*Service)
+
+// WithPollInterval sets how often AwaitDecision re-reads the approval. Default 250ms.
+// WithPollInterval đặt chu kỳ AwaitDecision đọc lại approval. Mặc định 250ms.
+func WithPollInterval(d time.Duration) Option {
+	return func(s *Service) {
+		if d > 0 {
+			s.poll = d
+		}
+	}
 }
 
 // NewService builds a Service. timeout is the deadline given to every new approval.
 // NewService tạo Service. timeout là deadline gán cho mọi approval mới.
-func NewService(repo port.ApprovalRepository, clock port.Clock, ids port.IDGenerator, timeout time.Duration, log *slog.Logger) (*Service, error) {
+func NewService(repo port.ApprovalRepository, clock port.Clock, ids port.IDGenerator, timeout time.Duration, log *slog.Logger, opts ...Option) (*Service, error) {
 	switch {
 	case repo == nil:
 		return nil, fmt.Errorf("%w: repository is required", domain.ErrInvalidArgument)
@@ -40,7 +54,65 @@ func NewService(repo port.ApprovalRepository, clock port.Clock, ids port.IDGener
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Service{repo: repo, clock: clock, ids: ids, timeout: timeout, log: log}, nil
+	s := &Service{repo: repo, clock: clock, ids: ids, timeout: timeout, poll: 250 * time.Millisecond, log: log}
+	for _, o := range opts {
+		o(s)
+	}
+	return s, nil
+}
+
+// Timeout returns the deadline given to new approvals. / Timeout trả về deadline gán cho approval mới.
+func (s *Service) Timeout() time.Duration { return s.timeout }
+
+// AwaitDecision blocks until the approval leaves pending and returns it. It expires the approval
+// itself when the deadline passes, so it never depends on the sweeper. If ctx ends first it returns
+// ctx.Err() and leaves the approval for the sweeper, which will deny it.
+//
+// AwaitDecision chặn tới khi approval rời pending rồi trả về approval đó. Khi quá deadline nó tự
+// cho approval hết hạn nên không phụ thuộc sweeper. Nếu ctx kết thúc trước thì trả ctx.Err() và để
+// sweeper xử lý approval, kết quả sẽ là deny.
+func (s *Service) AwaitDecision(ctx context.Context, id domain.ApprovalID) (domain.Approval, error) {
+	t := time.NewTicker(s.poll)
+	defer t.Stop()
+	for {
+		a, err := s.repo.Get(ctx, id)
+		if err != nil {
+			return domain.Approval{}, fmt.Errorf("await approval %s: %w", id, err)
+		}
+		if a.IsTerminal() {
+			return a, nil
+		}
+		now := s.clock.Now()
+		if !now.Before(a.Deadline) {
+			updated, err := s.repo.Update(ctx, id, func(cur *domain.Approval) error {
+				cur.Expire(now)
+				return nil
+			})
+			if err != nil {
+				return domain.Approval{}, fmt.Errorf("expire approval %s: %w", id, err)
+			}
+			if updated.Status == domain.ApprovalExpired {
+				s.log.InfoContext(ctx, "approval expired", slog.String("approval_id", string(id)))
+			}
+			return updated, nil
+		}
+		select {
+		case <-ctx.Done():
+			return domain.Approval{}, ctx.Err()
+		case <-t.C:
+		}
+	}
+}
+
+// Pending lists every pending approval, oldest deadline first.
+// Pending liệt kê mọi approval đang pending, deadline cũ nhất trước.
+func (s *Service) Pending(ctx context.Context) ([]domain.Approval, error) {
+	far := s.clock.Now().Add(100 * 365 * 24 * time.Hour)
+	out, err := s.repo.ListPendingBefore(ctx, far)
+	if err != nil {
+		return nil, fmt.Errorf("list pending approvals: %w", err)
+	}
+	return out, nil
 }
 
 // RequestInput describes what an agent asks permission for.

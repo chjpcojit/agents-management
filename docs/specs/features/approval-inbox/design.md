@@ -28,7 +28,7 @@ Domain giữ toàn bộ rule chuyển trạng thái; use case chỉ điều ph�
 | `internal/delivery/httpapi` | `events` SSE handler | stream, heartbeat, `Last-Event-ID` | new |
 | `internal/usecase/port` | `EventPublisher` | use case phát event khi approval đổi trạng thái | new |
 | `internal/adapter/eventbus/memory` | ring buffer 1000 event + fan-out subscriber | implement `EventPublisher` | new |
-| `internal/adapter/notify` | push adapter | Web Push / Telegram | ⚠️ chưa làm (Q-2) |
+| `internal/adapter/notify` | push adapter | Web Push / Telegram | deferred (TD-4) |
 
 ## Flows
 
@@ -205,7 +205,6 @@ Log JSON (`slog`), field: `approval_id`, `agent_id`, `kind`, `tool`, `risk`, `de
 | `TestDecideHandlerStatusMapping` | R-15 | B | `internal/delivery/httpapi` |
 | `TestSSEPublishAndReplay` | R-16, R-17, R-18 | B | `internal/delivery/httpapi` + `eventbus/memory` |
 | curl `-N /events` trong lúc decide | R-16 | C | thủ công |
-| (chờ Q-2) | R-13 | B | — |
 
 Not automated: SEC-1 kiểm bằng review tới khi có test bắt log.
 

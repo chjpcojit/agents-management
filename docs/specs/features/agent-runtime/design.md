@@ -16,11 +16,14 @@ Một `Runner` cho mỗi agent, sở hữu đúng một process `claude`: một 
 
 | Path | Component | Responsibility | Status |
 |---|---|---|---|
-| `internal/usecase/port` | `AgentRuntime`, `RuntimeEvent` | port cho use case | new |
-| `internal/adapter/runtime/claudecli` | `Runner`, decoder stream-json | spawn, stdin/stdout, signal, resume | stub (TD-1) |
-| `internal/adapter/mcpbus` | MCP HTTP server, tool `approval_prompt` | nối Claude Code vào approval-inbox | stub (TD-2) |
-| `internal/adapter/runtime/claudecli/testdata` | NDJSON thật từ spike | golden test cho decoder | new |
-| `cmd/spike` | CLI thử tay | gõ prompt, in event | new (chỉ cho spike) |
+| `internal/usecase/port` | `AgentRuntime`, `RuntimeEvent` | port cho use case | not started (sau spike) |
+| `internal/adapter/runtime/claudecli/protocol` | decoder stream-json, encoder user message | map dòng NDJSON → `Message`, giữ `Raw` | new |
+| `internal/adapter/runtime/claudecli` | `Runner` | spawn, env allowlist, stdin/stdout, signal, close | new (spike-grade, TD-4) |
+| `internal/delivery/mcpbus` | MCP HTTP server (go-sdk v1.8.0), tool `approval_prompt`, `send_message` | nối Claude Code vào approval-inbox; inbound adapter nên nằm ở delivery | new (`send_message` stub TD-3) |
+| `internal/usecase/approval` | `AwaitDecision`, `Pending` | chờ approval rời pending, tự expire khi quá hạn | modified (poll TD-5) |
+| `internal/domain` | `ClassifyRisk` | tool đọc là low, còn lại high (fail closed) | modified |
+| `internal/adapter/runtime/claudecli/protocol/testdata` | NDJSON mẫu | golden test cho decoder; thay bằng mẫu thật sau T1–T15 | new |
+| `cmd/spike` | `preflight`, `run`, `test` | kiểm môi trường, CLI thử tay, chạy T1–T15 và ghi `docs/spike-report.md` | new (chỉ cho spike) |
 
 ## Flows
 
@@ -47,7 +50,7 @@ Step 1 — Ghi prompt (`Runner`)
 - Call: encode user message envelope, ghi một dòng lên stdin.
     - Success → bước 2, agent `running`.
     - Failure (stdin đã đóng / broken pipe) → `ErrProcessExited`, agent `stopped`. Signal: log ERROR `agent stdin write failed` + `agent_id`.
-    - Failure (agent đang `running`) → `ErrBusy` tới khi Q-1 được trả lời. Signal: none: caller nhận lỗi.
+    - Failure (agent đang `running`) → `ErrBusy` tới khi Q-1 được trả lời (spike có `ForceSend` để đo T3, TD-4). Signal: none: caller nhận lỗi.
     - Grouped with: none.
 
 Step 2 — Đọc stream (`Runner` reader)
@@ -56,7 +59,8 @@ Step 2 — Đọc stream (`Runner` reader)
 - Call: decode NDJSON, map theo `type`/`subtype`.
     - Success → phát event typed, `result` thì agent `idle` và lưu `session_id`.
     - Failure (dòng không parse được) → event `unknown` giữ dòng thô. Signal: log WARN `unparsed stream line` + `agent_id`, độ dài dòng.
-    - Failure (dòng vượt 10 MB) → event `unknown` với cờ truncated. Signal: log WARN.
+    - Failure (dòng vượt 16 MB) → event `unknown`, dòng bị cắt. Signal: log WARN `unparsed stream line` + số byte.
+    - Failure (không có dòng nào 90s sau prompt) → agent `failed`, process bị terminate. Signal: log ERROR `agent failed` + reason.
     - Grouped with: thứ tự event giữ nguyên thứ tự dòng.
 
 ### Duyệt quyền
@@ -80,20 +84,20 @@ sequenceDiagram
 
 Step 1 — Nhận tool call (`mcpbus`)
 - Trigger: Claude Code cần duyệt một tool.
-- Pre-condition: agent được định danh qua URL (Q-4).
+- Pre-condition: request có bearer token khớp agent của path `/mcp/<agent_id>` (SEC-4, Q-4).
 - Call: `approval.Service.Request`.
     - Success → bước 2.
     - Failure (input không hợp lệ) → trả deny ngay. Signal: log WARN `approval request rejected` + `agent_id`, `tool`.
-    - Failure (agent không định danh được) → trả deny. Signal: log WARN `unknown agent on mcp`.
+    - Failure (token sai, agent lạ hoặc đã unregister) → HTTP 401, tool không chạy. Signal: log WARN `mcp request rejected` + path.
     - Grouped with: none.
 
 Step 2 — Chờ quyết định (`mcpbus`)
 - Trigger: bước 1.
 - Pre-condition: approval `pending`.
-- Call: đợi notify từ use case hoặc poll `Get` cho tới khi terminal.
+- Call: `approval.Service.AwaitDecision`: poll `Get` mỗi 250ms (TD-5), tự `Expire` khi quá deadline.
     - Success (`allowed`) → trả allow.
     - Success (`denied` / `expired`) → trả deny kèm reason.
-    - Failure (MCP request bị hủy phía client) → giữ approval, sweeper sẽ cho expire. Signal: log INFO `approval wait cancelled`.
+    - Failure (MCP request bị hủy phía client) → trả deny, giữ approval cho sweeper expire. Signal: log INFO `approval wait cancelled`.
     - Grouped with: none.
 
 ### Hủy turn, crash, shutdown
@@ -104,24 +108,24 @@ Step 2 — Chờ quyết định (`mcpbus`)
 
 ```mermaid
 stateDiagram-v2
-    [*] --> starting: Start
-    starting --> idle: system/init
-    starting --> failed: timeout 30s / auth lỗi
+    [*] --> idle: Start (spawn)
     idle --> running: Send
     running --> idle: result
     running --> idle: Interrupt + result
+    running --> failed: 90s không output / auth lỗi
     idle --> stopped: process exit
     running --> stopped: process exit
-    stopped --> starting: Start(--resume)
+    stopped --> idle: Start(--resume)
     failed --> [*]
 ```
 
+Runner không có `starting`: `system/init` chỉ đến sau prompt đầu tiên (Q-6), nên spawn xong là `idle`.
+
 | State | Allowed actions | Limits | Exit |
 |---|---|---|---|
-| `starting` | none | 30s chờ init | `idle` / `failed` |
-| `idle` | Send, Stop | — | `running` / `stopped` |
-| `running` | Interrupt, Stop | — | `idle` / `stopped` |
-| `stopped` | Start (resume) | — | `starting` |
+| `idle` | Send, Close | — | `running` / `stopped` |
+| `running` | Interrupt, Close (spike: ForceSend) | 90s chờ output đầu tiên | `idle` / `stopped` / `failed` |
+| `stopped` | Start mới với `--resume` | — | `idle` (Runner mới) |
 | `failed` | none | terminal tới khi sửa auth | — |
 
 ## Error mapping
@@ -135,7 +139,7 @@ stateDiagram-v2
 
 ## Config and lifecycle
 
-Biến mới dự kiến: `ORCH_CLAUDE_BIN` (path tới `claude`, mặc định tra PATH), `ORCH_AGENT_INIT_TIMEOUT` (30s). Readiness: MCP server listen được và `claude --version` chạy được.
+Biến mới dự kiến: `ORCH_CLAUDE_BIN` (path tới `claude`, mặc định tra PATH), `ORCH_AGENT_FIRST_EVENT_TIMEOUT` (90s). Spike đọc từ flag, chưa từ config. Readiness: MCP server listen được và `claude --version` chạy được.
 
 ## Test plan
 
@@ -143,11 +147,14 @@ Biến mới dự kiến: `ORCH_CLAUDE_BIN` (path tới `claude`, mặc định 
 |---|---|---|---|
 | `TestDecoderGolden` trên `testdata/*.ndjson` | R-5, R-6 | B | `claudecli` |
 | `TestRunnerEnvAllowlist` | R-2 | B | `claudecli` |
-| `TestRunnerStateMachine` với process giả (script echo NDJSON) | R-4, R-7, R-12, R-13 | B | `claudecli` |
-| `TestApprovalPromptAllowDenyExpire` | R-10 | B | `mcpbus` |
-| Spike T1–T15 | R-1…R-15, SEC-1, SEC-2 | C, D | `docs/spike-report.md` |
+| `TestRunnerStateMachine` (multi-turn, busy, garbage, interrupt, crash, kill, auth fail, silent, close) với binary test làm claude giả | R-3, R-4, R-6, R-7, R-12, R-13, R-14 | B | `claudecli` |
+| `TestBuildArgs` (không `--bare`, có `--strict-mcp-config`, settings deny) | R-1, R-9, SEC-2 | B | `claudecli` |
+| `TestApprovalPrompt*`, `TestAuth*`, `TestTwoAgentsRoutedSeparately` | R-10, SEC-4 | B | `delivery/mcpbus` |
+| `TestScenariosAgainstFake`: chạy T1–T15 qua harness thật với claude giả gọi MCP thật | wiring của spike, không phải hành vi Claude | B | `cmd/spike` |
+| Spike T1–T15 với `claude` thật | R-1…R-15, SEC-1, SEC-2, SEC-4, Q-1…Q-6 | D | `docs/spike-report.md` |
 
 ## Deliberately stubbed
 
-- Runner chưa implement: TD-1.
-- MCP server chưa implement: TD-2.
+- `send_message` chỉ ghi nhận, chưa lưu hay chuyển tiếp: TD-3.
+- Runner là spike-grade, chưa có port `AgentRuntime`, còn `ForceSend`: TD-4.
+- `AwaitDecision` poll thay vì nhận notify: TD-5.
