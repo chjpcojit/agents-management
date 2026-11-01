@@ -23,7 +23,11 @@ Domain giữ toàn bộ rule chuyển trạng thái; use case chỉ điều ph�
 | `internal/adapter/repository/memory/approval.go` | in-memory repository | mutex, atomic `Update` | stub (TD-1) |
 | `internal/adapter/system/system.go` | `Clock`, `UUIDGenerator` | UTC clock, UUIDv4 từ `crypto/rand` | new |
 | `cmd/orchestrator/main.go` | sweeper goroutine | gọi `ExpireDue` mỗi 1s, dừng theo context | new |
-| `internal/delivery/httpapi` | inbox handlers | list + decide | ⚠️ chưa làm (Q-1) |
+| `api/openapi.yaml` | contract | shape REST + SSE event | new |
+| `internal/delivery/httpapi` | `approvals` handlers | list, get, decide, map lỗi sang problem | new |
+| `internal/delivery/httpapi` | `events` SSE handler | stream, heartbeat, `Last-Event-ID` | new |
+| `internal/usecase/port` | `EventPublisher` | use case phát event khi approval đổi trạng thái | new |
+| `internal/adapter/eventbus/memory` | ring buffer 1000 event + fan-out subscriber | implement `EventPublisher` | new |
 | `internal/adapter/notify` | push adapter | Web Push / Telegram | ⚠️ chưa làm (Q-2) |
 
 ## Flows
@@ -87,6 +91,49 @@ Step 3 — Áp rule (`domain.Approval`)
     - Failure (thiếu người duyệt hoặc decision lạ) → `ErrInvalidArgument`, không lưu. Signal: none: caller nhận lỗi.
     - Grouped with: bước 2.
 
+### Event SSE
+
+```mermaid
+sequenceDiagram
+    participant S as approval.Service
+    participant B as EventPublisher (ring buffer)
+    participant H as SSE handler
+    participant C as Client
+    C->>H: GET /events (Last-Event-ID?)
+    H->>B: Subscribe(after id)
+    B--xH: id rơi khỏi buffer → event resync
+    B-->>H: replay các event sau id
+    S->>B: Publish(approval.decided)
+    B-->>H: event
+    H-->>C: id, event, data
+    H-->>C: heartbeat mỗi 15s
+    C--xH: ngắt kết nối → Unsubscribe
+```
+
+Step 1 — Publish (`approval.Service`)
+- Trigger: `Request`, `Decide`, `ExpireDue` lưu thành công.
+- Pre-condition: bản ghi đã persist.
+- Call: `EventPublisher.Publish(event)` sau khi Update thành công, không nằm trong mutate.
+    - Success → bước 2.
+    - Failure (publisher lỗi) → không rollback quyết định; client sẽ thấy khi gọi lại R-12. Signal: log WARN `event publish failed` + `approval_id`.
+    - Grouped with: none, quyết định là nguồn sự thật, event chỉ là thông báo.
+
+Step 2 — Fan-out (`eventbus/memory`)
+- Trigger: Publish.
+- Pre-condition: none.
+- Call: gán id tăng dần, ghi vào ring buffer, gửi non-blocking cho mỗi subscriber.
+    - Success → bước 3.
+    - Failure (subscriber chậm, channel đầy) → ngắt subscriber đó; client reconnect với `Last-Event-ID`. Signal: log WARN `sse subscriber dropped`.
+    - Grouped with: none.
+
+Step 3 — Ghi SSE (`events` handler)
+- Trigger: event tới channel của subscriber.
+- Pre-condition: kết nối còn mở.
+- Call: ghi `id:`, `event:`, `data:` rồi flush.
+    - Success → chờ event tiếp.
+    - Failure (client ngắt) → Unsubscribe, kết thúc handler. Signal: none: ngắt kết nối là bình thường.
+    - Grouped with: none.
+
 ### Expire sweep
 
 `sweeper (1s ticker) → Service.ExpireDue → ListPendingBefore(now) → Update(id, Expire) cho từng bản ghi`. Lỗi một bản ghi được gộp bằng `errors.Join`, vòng quét tiếp tục; `main` log ERROR. Dừng khi context bị hủy lúc shutdown.
@@ -121,7 +168,7 @@ stateDiagram-v2
 | `approval.ErrLateDecision` | `expired` | 409 | `approval.expired` |
 | khác | `internal` | 500, body không chứa chi tiết | `common.internal` |
 
-> ⚠️ Not confirmed: mã HTTP ở trên phụ thuộc shape API inbox — chặn delivery handler. (Q-1)
+Body lỗi theo RFC 7807, `code` lấy từ cột Code. Không bao giờ đưa text lỗi nội bộ vào body.
 
 ## Layers
 
@@ -152,7 +199,13 @@ Log JSON (`slog`), field: `approval_id`, `agent_id`, `kind`, `tool`, `risk`, `de
 | `TestConcurrentDecisionsOnlyOneWins` | R-7 | B (`-race`) | `internal/usecase/approval/service_test.go` |
 | `TestDecideUnknownID` | R-9 | B | `internal/usecase/approval/service_test.go` |
 | `TestExpire`, `TestExpireDue` | R-10 | B | domain + use case |
-| (chưa có) | R-11, R-12, R-13, SEC-1 | B | ⚠️ cần test fake repository lỗi; R-12/R-13 chờ Q-1/Q-2 |
+| (chưa có) | R-11, SEC-1 | B | cần test fake repository lỗi |
+| `TestListPendingApprovals` | R-12 | B | `internal/delivery/httpapi` |
+| `TestGetApproval` | R-14 | B | `internal/delivery/httpapi` |
+| `TestDecideHandlerStatusMapping` | R-15 | B | `internal/delivery/httpapi` |
+| `TestSSEPublishAndReplay` | R-16, R-17, R-18 | B | `internal/delivery/httpapi` + `eventbus/memory` |
+| curl `-N /events` trong lúc decide | R-16 | C | thủ công |
+| (chờ Q-2) | R-13 | B | — |
 
 Not automated: SEC-1 kiểm bằng review tới khi có test bắt log.
 

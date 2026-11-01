@@ -1,4 +1,4 @@
-# Source: ../requirements.md v1.0
+# Source: ../requirements.md v1.1
 Feature: Quyết định yêu cầu duyệt
 
   Background:
@@ -95,3 +95,50 @@ Feature: Quyết định yêu cầu duyệt
   Scenario: Yêu cầu rủi ro cao gửi thông báo
     When agent "agent-a" xin chạy tool "Bash" mức rủi ro "high"
     Then thiết bị của người dùng nhận thông báo duyệt
+
+  # R-14
+  Scenario: Xem chi tiết trước khi duyệt
+    Given agent "agent-a" xin chạy tool "Bash" với lệnh "touch x"
+    When người dùng mở chi tiết yêu cầu
+    Then người dùng thấy lệnh "touch x"
+
+  # R-15
+  Scenario Outline: Kết quả gửi quyết định
+    Given <tình huống>
+    When người dùng gửi quyết định cho phép
+    Then người dùng nhận <kết quả>
+
+    Examples:
+      | tình huống                        | kết quả                     |
+      | yêu cầu đang chờ duyệt            | yêu cầu đã cho phép         |
+      | yêu cầu không tồn tại             | lỗi không tìm thấy          |
+      | yêu cầu đã bị từ chối             | lỗi đã được quyết định      |
+      | yêu cầu đã quá hạn                | lỗi quá hạn                 |
+
+  # R-16
+  @wip
+  Scenario: Yêu cầu mới hiện ngay không cần tải lại
+    Given người dùng đang mở inbox
+    When agent "agent-a" xin chạy tool "Bash"
+    Then trong vòng 1 giây inbox hiện yêu cầu của "agent-a"
+
+  # R-17
+  @wip
+  Scenario: Kết nối lại không mất event
+    Given người dùng đã nhận event đến số 10
+    And mất kết nối trong lúc có 3 yêu cầu mới
+    When người dùng kết nối lại từ event số 10
+    Then người dùng nhận đủ 3 yêu cầu mới
+
+  # R-17
+  @wip
+  Scenario: Kết nối lại quá trễ
+    Given event số 10 đã rơi khỏi bộ đệm
+    When người dùng kết nối lại từ event số 10
+    Then người dùng được yêu cầu tải lại toàn bộ inbox
+
+  # R-18
+  @wip
+  Scenario: Kết nối rảnh vẫn được giữ
+    Given người dùng đang mở inbox và không có yêu cầu mới trong 60 giây
+    Then kết nối vẫn mở
