@@ -188,14 +188,20 @@ func TestSendWhileRunningQueues(t *testing.T) {
 	if got := r.Pending(); got != 2 {
 		t.Fatalf("pending = %d, want 2", got)
 	}
-	if got := resultText(nextResult(t, r)); got != "slept" {
+	// Check the event order, not State(): the reader may already be past the second result.
+	// Kiểm thứ tự event, không đọc State(): reader có thể đã đọc qua result thứ hai.
+	first := nextResult(t, r)
+	if got := resultText(first); got != "slept" {
 		t.Fatalf("first result %q", got)
 	}
-	if s := r.State(); s != claudecli.StateRunning {
-		t.Fatalf("state after first of two results = %s, want running", s)
-	}
-	if got := resultText(nextResult(t, r)); got != "echo: again" {
+	second := nextResult(t, r)
+	if got := resultText(second); got != "echo: again" {
 		t.Fatalf("second result %q", got)
+	}
+	for _, e := range append(first, second...) {
+		if e.Type == claudecli.EventState && e.State == claudecli.StateIdle {
+			t.Fatal("runner went idle before the second result")
+		}
 	}
 	waitState(t, r, claudecli.StateIdle)
 	if got := r.Pending(); got != 0 {
