@@ -44,10 +44,19 @@ Inbox duyệt tập trung cho mọi agent: agent xin chạy tool hoặc chủ đ
 
 ### Inbox cho user (Prospective)
 
-- R-12: WHEN user mở inbox, THE SYSTEM SHALL trả danh sách approval `pending` của mọi agent, deadline gần nhất trước, có agent, kind, tool, risk, deadline.
-  > ⚠️ Not confirmed: shape của API inbox (REST hay chỉ WebSocket event) — chặn delivery handler. (Q-1)
+- R-12: WHEN client gọi `GET /approvals?status=pending`, THE SYSTEM SHALL trả 200 với danh sách approval `pending` của mọi agent, deadline gần nhất trước, mỗi phần tử có `id`, `agent_id`, `kind`, `tool_name`, `risk`, `created_at`, `deadline`. Tool input không nằm trong danh sách. (platform)
 - R-13: WHEN có approval mới với risk `high`, THE SYSTEM SHALL gửi push notification tới thiết bị của user.
   > ⚠️ Not confirmed: kênh push GĐ1 (Web Push, Telegram, hay cả hai) — chặn adapter notify. (Q-2)
+- R-14: WHEN client gọi `GET /approvals/{id}`, THE SYSTEM SHALL trả 200 với approval đầy đủ, kể cả tool input, để người duyệt xem trước khi quyết định; id không tồn tại trả 404. (platform)
+- R-15: WHEN client gọi `POST /approvals/{id}/decision` với `decision` (`allow`/`deny`) và `reason` tùy chọn, THE SYSTEM SHALL áp dụng R-4…R-9 và trả, then:
+  - on success: 200 với approval sau khi quyết định;
+  - on failure (body sai hoặc decision lạ): 400;
+  - on failure (không tồn tại): 404;
+  - on failure (đã quyết định): 409 `already_decided`;
+  - on failure (quá hạn): 409 `expired`, approval đã lưu `expired`. (platform)
+- R-16: WHILE một client giữ kết nối `GET /events` (SSE), THE SYSTEM SHALL đẩy event `approval.requested`, `approval.decided`, `approval.expired` trong vòng 1 giây kể từ khi trạng thái đổi, mỗi event có `id` tăng dần và payload như một phần tử của R-12 cộng `status`. (platform)
+- R-17: WHEN client SSE kết nối lại với header `Last-Event-ID`, THE SYSTEM SHALL gửi lại các event sau id đó còn trong buffer 1000 event gần nhất; nếu id đã rơi khỏi buffer, THE SYSTEM SHALL gửi event `resync` để client gọi lại R-12. (platform)
+- R-18: THE SYSTEM SHALL gửi comment SSE heartbeat mỗi 15 giây để proxy và trình duyệt không đóng kết nối rảnh. (platform)
 
 ## Security
 
@@ -62,7 +71,11 @@ Inbox duyệt tập trung cho mọi agent: agent xin chạy tool hoặc chủ đ
 |---|---|---|---|
 | Env var | `ORCH_APPROVAL_TIMEOUT` | this feature | Go duration, ≥ 10s, default 5m |
 | Go port | `port.ApprovalRepository` | this feature | `Update` phải atomic |
-| HTTP | inbox list / decide | this feature | ⚠️ chưa thiết kế (Q-1) |
+| HTTP | `GET /approvals` | this feature | shape trong `api/openapi.yaml` (tạo ở Phase 4) |
+| HTTP | `GET /approvals/{id}` | this feature | như trên |
+| HTTP | `POST /approvals/{id}/decision` | this feature | như trên |
+| SSE | `GET /events`: `approval.requested`, `approval.decided`, `approval.expired`, `resync` | this feature | kênh chung, stream tiến độ agent sẽ dùng lại |
+| Error body | RFC 7807 problem (`type`, `title`, `status`, `code`) | this feature | `code` theo bảng error mapping |
 | MCP tool | `approval_prompt` | [agent-runtime](../agent-runtime/requirements.md) | đầu vào của R-1 |
 
 ## Out of scope
@@ -75,5 +88,4 @@ Inbox duyệt tập trung cho mọi agent: agent xin chạy tool hoặc chủ đ
 
 | ID | Câu hỏi | Owner | Liên quan |
 |---|---|---|---|
-| Q-1 | API inbox: REST `GET /approvals` + `POST /approvals/{id}/decision`, hay chỉ qua WebSocket? Đề xuất: REST + event qua SSE | Đức | R-12 |
 | Q-2 | Kênh push GĐ1? Đề xuất: Telegram trước (không cần HTTPS public) | Đức | R-13 |

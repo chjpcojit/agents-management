@@ -5,7 +5,7 @@
 | Item | Value |
 |---|---|
 | Overall | In progress |
-| Spec | v1.0 |
+| Spec | v1.1 |
 | Profile | be |
 | Design | design.md |
 | A — static | 2026-11-01: `make lint` → 0 issues; depguard thử import sai domain → platform và usecase → adapter, đều bị báo |
@@ -14,7 +14,7 @@
 | D — owner check | not yet |
 | E — e2e | not written |
 | Branch / commit | `chore/clean-architecture-skeleton` |
-| Open | Q-1, Q-2, TD-1, TD-2, TD-3 |
+| Open | Q-2, TD-1, TD-2, TD-3 |
 | Knowledge | — |
 
 Verification method: A `make lint`, B `make test`, C `make run` + curl. Môi trường: container cloud, không có DB, không có login Claude.
@@ -38,7 +38,11 @@ Verification method: A `make lint`, B `make test`, C `make run` + curl. Môi tr�
 
 ## Phase 4 — Delivery
 
-- [ ] Handler inbox list + decide, map lỗi theo design — blocked by Q-1
+- [ ] `api/openapi.yaml` cho `/approvals`, `/approvals/{id}`, `/approvals/{id}/decision`, `/events`, problem body — verify: (A) lint OpenAPI
+- [ ] Port `EventPublisher` + `eventbus/memory` ring buffer — verify: (B) `TestSSEPublishAndReplay`
+- [ ] Service phát event sau khi lưu thành công — verify: (B) test use case với fake publisher
+- [ ] Handler list + get + decide, map lỗi sang RFC 7807 — verify: (B) `TestListPendingApprovals`, `TestGetApproval`, `TestDecideHandlerStatusMapping`. Không bật ngoài loopback khi TD-3 còn mở
+- [ ] SSE `/events` với heartbeat và `Last-Event-ID` — verify: (B) `TestSSEPublishAndReplay`, (C) curl `-N`
 - [ ] Push notification cho risk `high` — blocked by Q-2
 
 ## Deferred

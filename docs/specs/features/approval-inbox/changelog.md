@@ -1,5 +1,19 @@
 # Changelog — approval-inbox
 
+## v1.1 — 2026-11-01
+
+Chốt API inbox là REST + SSE, thêm criteria cho các endpoint và kênh event.
+
+- requirements.md: R-12 viết lại theo `GET /approvals`; thêm R-14…R-18; contract surface thêm 3 route REST, `/events`, RFC 7807
+- design.md: components thêm `api/openapi.yaml`, handlers, `EventPublisher`, `eventbus/memory`; flow Event SSE (steps + diagram); bỏ marker Q-1 ở error mapping; test plan thêm R-12, R-14…R-18
+- tasks.md: Phase 4 tách thành 5 item, bỏ blocked by Q-1
+- gherkin/approval-decision.feature: thêm scenario R-14…R-18
+- assumptions.md / tech-debt.md: no change needed, checked (TD-3 vẫn chặn mở ngoài loopback)
+- Resolved: Q-1 → REST + SSE (Đức, 2026-11-01)
+- Upstream: unchanged
+- Reason: Đức chọn REST + SSE
+- Follow-ups outside this folder: tạo `api/openapi.yaml` (nằm trong Phase 4 của feature này)
+
 ## v1.0 — 2026-11-01
 
 v1.0 (initial), Mixed: phần domain và use case viết Retroactive từ code đã có, delivery và push viết Prospective.
