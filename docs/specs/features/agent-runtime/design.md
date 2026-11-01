@@ -36,21 +36,20 @@ sequenceDiagram
     participant P as claude -p
     U->>R: Send(prompt)
     R->>P: 1 dòng JSON user message (stdin)
-    R--xU: ErrBusy nếu chưa rõ Q-1
     P-->>R: system/init
     P-->>R: assistant / user / stream_event
     P-->>R: result
     R-->>U: events (channel), status idle
-    Note over R,P: ⚠️ ghi stdin khi đang chạy (Q-1)
+    Note over R,P: prompt ghi khi đang chạy: Claude Code xếp hàng, mỗi prompt một result (T3)
 ```
 
 Step 1 — Ghi prompt (`Runner`)
 - Trigger: use case gọi `Send`.
-- Pre-condition: process sống, agent `idle`.
+- Pre-condition: process sống (`idle` hoặc `running`).
 - Call: encode user message envelope, ghi một dòng lên stdin.
     - Success → bước 2, agent `running`.
     - Failure (stdin đã đóng / broken pipe) → `ErrProcessExited`, agent `stopped`. Signal: log ERROR `agent stdin write failed` + `agent_id`.
-    - Failure (agent đang `running`) → `ErrBusy` tới khi Q-1 được trả lời (spike có `ForceSend` để đo T3, TD-4). Signal: none: caller nhận lỗi.
+    - Success (agent đang `running`) → vẫn ghi, `pending` tăng; agent về `idle` khi `pending` về 0.
     - Grouped with: none.
 
 Step 2 — Đọc stream (`Runner` reader)
@@ -84,7 +83,7 @@ sequenceDiagram
 
 Step 1 — Nhận tool call (`mcpbus`)
 - Trigger: Claude Code cần duyệt một tool.
-- Pre-condition: request có bearer token khớp agent của path `/mcp/<agent_id>` (SEC-4, Q-4).
+- Pre-condition: request có bearer token khớp agent của path `/mcp/<agent_id>` (SEC-4, xác nhận ở T15).
 - Call: `approval.Service.Request`.
     - Success → bước 2.
     - Failure (input không hợp lệ) → trả deny ngay. Signal: log WARN `approval request rejected` + `agent_id`, `tool`.
@@ -119,12 +118,12 @@ stateDiagram-v2
     failed --> [*]
 ```
 
-Runner không có `starting`: `system/init` chỉ đến sau prompt đầu tiên (Q-6), nên spawn xong là `idle`.
+Runner không có `starting`: Claude Code phát `system/init` ở đầu mỗi turn, không phải lúc spawn (T1, T9), nên spawn xong là `idle`.
 
 | State | Allowed actions | Limits | Exit |
 |---|---|---|---|
 | `idle` | Send, Close | — | `running` / `stopped` |
-| `running` | Interrupt, Close (spike: ForceSend) | 90s chờ output đầu tiên | `idle` / `stopped` / `failed` |
+| `running` | Send (xếp hàng), Interrupt, Close | 90s chờ output đầu tiên | `idle` khi `pending` = 0 / `stopped` / `failed` |
 | `stopped` | Start mới với `--resume` | — | `idle` (Runner mới) |
 | `failed` | none | terminal tới khi sửa auth | — |
 
@@ -132,7 +131,6 @@ Runner không có `starting`: `system/init` chỉ đến sau prompt đầu tiên
 
 | Source error | Code | Result | Message key |
 |---|---|---|---|
-| `ErrBusy` | `agent_busy` | 409 | `agent.busy` |
 | `ErrProcessExited` | `agent_stopped` | 409 | `agent.stopped` |
 | init timeout / auth lỗi | `agent_failed` | event + status `failed` | `agent.failed` |
 | khác | `internal` | 500 | `common.internal` |
@@ -148,13 +146,16 @@ Biến mới dự kiến: `ORCH_CLAUDE_BIN` (path tới `claude`, mặc định 
 | `TestDecoderGolden` trên `testdata/*.ndjson` | R-5, R-6 | B | `claudecli` |
 | `TestRunnerEnvAllowlist` | R-2 | B | `claudecli` |
 | `TestRunnerStateMachine` (multi-turn, busy, garbage, interrupt, crash, kill, auth fail, silent, close) với binary test làm claude giả | R-3, R-4, R-6, R-7, R-12, R-13, R-14 | B | `claudecli` |
-| `TestBuildArgs` (không `--bare`, có `--strict-mcp-config`, settings deny) | R-1, R-9, SEC-2 | B | `claudecli` |
+| `TestBuildArgs` (không `--bare`, có `--strict-mcp-config`, settings deny và ask) | R-1, R-9, SEC-2, SEC-5 | B | `claudecli` |
+| `TestSendWhileRunningQueues` | R-8 | B | `claudecli` |
+| `TestCheckNotBypassedCatchesUserRule` (dòng NDJSON thật từ T5) | SEC-5 | B | `cmd/spike` |
 | `TestApprovalPrompt*`, `TestAuth*`, `TestTwoAgentsRoutedSeparately` | R-10, SEC-4 | B | `delivery/mcpbus` |
 | `TestScenariosAgainstFake`: chạy T1–T15 qua harness thật với claude giả gọi MCP thật | wiring của spike, không phải hành vi Claude | B | `cmd/spike` |
-| Spike T1–T15 với `claude` thật | R-1…R-15, SEC-1, SEC-2, SEC-4, Q-1…Q-6 | D | `docs/spike-report.md` |
+| Spike T1–T15 với `claude` thật | R-1…R-15, SEC-1, SEC-2, SEC-4, SEC-5 | D | `docs/spike-report.md` |
 
 ## Deliberately stubbed
 
 - `send_message` chỉ ghi nhận, chưa lưu hay chuyển tiếp: TD-3.
-- Runner là spike-grade, chưa có port `AgentRuntime`, còn `ForceSend`: TD-4.
+- Runner là spike-grade, chưa có port `AgentRuntime`: TD-4.
+- Quota Max đọc bằng parse text của `/usage`: TD-6.
 - `AwaitDecision` poll thay vì nhận notify: TD-5.

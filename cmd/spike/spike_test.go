@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chjpcojit/agents-management/internal/adapter/runtime/claudecli/protocol"
 )
 
 type bearer struct {
@@ -129,5 +131,25 @@ func TestInteractiveSession(t *testing.T) {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output misses %q:\n%s", want, out.String())
 		}
+	}
+}
+
+// The lines come from the owner's real run (spike T5, 2026-11-01): Bash was accepted by a user rule.
+// Các dòng lấy từ lần chạy thật của owner (spike T5, 2026-11-01): Bash được rule của user chấp nhận.
+func TestCheckNotBypassedCatchesUserRule(t *testing.T) {
+	use := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_014p","name":"Bash","input":{"command":"touch x"}}]}}`
+	res := `{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_014p","type":"tool_result","content":"(Bash completed with no output)","is_error":false}]},"tool_result_meta":[{"id":"toolu_014p","permission_decision":{"decision":"accept","source":"user_permanent","reason_type":"rule"}}]}`
+	msgs := []timedMessage{{Msg: protocol.Decode([]byte(use))}, {Msg: protocol.Decode([]byte(res))}}
+
+	c := CaseResult{Status: StatusPass}
+	checkNotBypassed(&c, msgs, "Bash")
+	if c.Status != StatusFail {
+		t.Fatalf("a user rule deciding Bash must fail the case, notes: %v", c.Notes)
+	}
+
+	c = CaseResult{Status: StatusPass}
+	checkNotBypassed(&c, msgs, "Edit")
+	if c.Status != StatusPass {
+		t.Fatalf("other tools are not affected, notes: %v", c.Notes)
 	}
 }

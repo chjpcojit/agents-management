@@ -108,6 +108,7 @@ func TestBuildArgs(t *testing.T) {
 		"-p", "--input-format stream-json", "--output-format stream-json", "--verbose",
 		"--strict-mcp-config", "--permission-prompt-tool " + claudecli.PermissionPromptTool,
 		"--session-id " + sid, "--model sonnet", `"crossSessionInbound":"refuse"`, `"Authorization":"Bearer tok"`,
+		`"ask":["Bash","Edit","Write"`,
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("args missing %q", want)
@@ -174,15 +175,32 @@ func TestMultiTurnAndStateMachine(t *testing.T) {
 	}
 }
 
-func TestSendWhileRunningIsBusy(t *testing.T) {
+// Claude Code queues a prompt written during a turn (spike T3); the runner stays running until both results.
+// Claude Code xếp hàng prompt ghi vào giữa turn (spike T3); runner ở running tới khi có đủ hai result.
+func TestSendWhileRunningQueues(t *testing.T) {
 	r := start(t, nil)
-	if err := r.Send("sleep 2"); err != nil {
+	if err := r.Send("sleep 1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Send("again"); !errors.Is(err, claudecli.ErrBusy) {
-		t.Fatalf("want ErrBusy, got %v", err)
+	if err := r.Send("again"); err != nil {
+		t.Fatalf("second send while running: %v", err)
 	}
-	nextResult(t, r)
+	if got := r.Pending(); got != 2 {
+		t.Fatalf("pending = %d, want 2", got)
+	}
+	if got := resultText(nextResult(t, r)); got != "slept" {
+		t.Fatalf("first result %q", got)
+	}
+	if s := r.State(); s != claudecli.StateRunning {
+		t.Fatalf("state after first of two results = %s, want running", s)
+	}
+	if got := resultText(nextResult(t, r)); got != "echo: again" {
+		t.Fatalf("second result %q", got)
+	}
+	waitState(t, r, claudecli.StateIdle)
+	if got := r.Pending(); got != 0 {
+		t.Fatalf("pending = %d, want 0", got)
+	}
 }
 
 func TestGarbageLineKeepsStream(t *testing.T) {

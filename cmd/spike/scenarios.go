@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -36,6 +37,8 @@ type CaseResult struct {
 	Notes    []string
 	Samples  map[string]string // label → raw NDJSON excerpt / nhãn → trích NDJSON gốc
 	Duration time.Duration
+
+	msgs []timedMessage // messages of the case's main command, for post-checks / message của lệnh chính, để kiểm sau
 }
 
 func (c *CaseResult) note(format string, a ...any) {
@@ -301,8 +304,8 @@ func runT3(ctx context.Context, env scenarioEnv, c *CaseResult) error {
 		return nil
 	}
 	sentAt := time.Now()
-	if err := a.r.ForceSend("Stop. Reply with exactly: SECOND"); err != nil {
-		c.fail("force send while running: %v", err)
+	if err := a.r.Send("Stop. Reply with exactly: SECOND"); err != nil {
+		c.fail("send while running: %v", err)
 		return nil
 	}
 	msgs, err := a.WaitFor(wctx, from, hasResults(2))
@@ -329,6 +332,13 @@ func runT3(ctx context.Context, env scenarioEnv, c *CaseResult) error {
 	}
 	if a.Exited() != nil {
 		c.fail("process exited")
+	}
+	if len(results) >= 2 {
+		// Runner must count both prompts and only go idle after the second result.
+		// Runner phải đếm cả hai prompt và chỉ về idle sau result thứ hai.
+		if st, p := a.r.State(), a.r.Pending(); p != 0 || st != "idle" {
+			c.fail("after both results runner is %s with %d pending, want idle with 0", st, p)
+		}
 	}
 	return nil
 }
@@ -391,6 +401,70 @@ func bashPrompt(command string) string {
 		"\nIf it is denied, do not retry and do not use another tool; just tell me the reason you were given."
 }
 
+// hasToolUse reports whether msgs hold a tool_use of the named tool.
+// hasToolUse cho biết msgs có tool_use của tool đã nêu không.
+func hasToolUse(name string) func([]timedMessage) bool {
+	return func(msgs []timedMessage) bool {
+		for _, m := range msgs {
+			for _, b := range m.Msg.Blocks {
+				if b.Type == "tool_use" && b.Name == name {
+					return true
+				}
+			}
+		}
+		return false
+	}
+}
+
+// permissionSources reads tool_result_meta.permission_decision (undocumented, seen in spike T5) per tool.
+// permissionSources đọc tool_result_meta.permission_decision (chưa có docs, thấy ở spike T5) theo từng tool.
+func permissionSources(msgs []timedMessage) map[string][]string {
+	names := map[string]string{}
+	out := map[string][]string{}
+	for _, m := range msgs {
+		for _, b := range m.Msg.Blocks {
+			if b.Type == "tool_use" {
+				names[b.ID] = b.Name
+			}
+		}
+		if m.Msg.Kind != protocol.KindUser {
+			continue
+		}
+		var env struct {
+			Meta []struct {
+				ID       string `json:"id"`
+				Decision struct {
+					Decision string `json:"decision"`
+					Source   string `json:"source"`
+					Reason   string `json:"reason_type"`
+				} `json:"permission_decision"`
+			} `json:"tool_result_meta"`
+		}
+		if json.Unmarshal(m.Msg.Raw, &env) != nil {
+			continue
+		}
+		for _, x := range env.Meta {
+			name := names[x.ID]
+			if name == "" {
+				name = "?"
+			}
+			out[name] = append(out[name], x.Decision.Decision+" by "+x.Decision.Source+"/"+x.Decision.Reason)
+		}
+	}
+	return out
+}
+
+// checkNotBypassed fails the case when a rule in the owner's settings decided a tool that must reach the inbox.
+// checkNotBypassed đánh fail case khi rule trong settings của owner tự quyết một tool lẽ ra phải vào inbox.
+func checkNotBypassed(c *CaseResult, msgs []timedMessage, tool string) {
+	for _, s := range permissionSources(msgs)[tool] {
+		c.note("%s permission decision: %s", tool, s)
+		if strings.Contains(s, "user") && strings.Contains(s, "rule") {
+			c.fail("%s was decided by a rule in the owner's settings, not by the approval inbox", tool)
+		}
+	}
+}
+
 func describeApprovals(c *CaseResult, h *harness, agentID string) []domain.Approval {
 	opened := h.Opened(domain.AgentID(agentID))
 	for i, a := range opened {
@@ -411,6 +485,7 @@ func runT5(ctx context.Context, env scenarioEnv, c *CaseResult) error {
 	msgs, err := a.Turn(ctx, bashPrompt("touch spike_allow.txt"), env.TurnLimit)
 	checkResultOK(c, "turn", msgs, err)
 	opened := describeApprovals(c, h, "t5")
+	checkNotBypassed(c, msgs, "Bash")
 	if len(opened) == 0 {
 		c.fail("approval_prompt was never called")
 	} else if opened[0].ToolName != "Bash" {
@@ -437,6 +512,7 @@ func runT6(ctx context.Context, env scenarioEnv, c *CaseResult) error {
 	msgs, err := a.Turn(ctx, bashPrompt("touch spike_deny.txt"), env.TurnLimit)
 	r := checkResultOK(c, "turn", msgs, err)
 	opened := describeApprovals(c, h, "t6")
+	checkNotBypassed(c, msgs, "Bash")
 	if len(opened) == 0 {
 		c.fail("approval_prompt was never called")
 	}
@@ -468,6 +544,7 @@ func runT7(ctx context.Context, env scenarioEnv, c *CaseResult) error {
 	elapsed := time.Since(sent)
 	checkResultOK(c, "turn", msgs, err)
 	opened := describeApprovals(c, h, "t7")
+	checkNotBypassed(c, msgs, "Bash")
 	if len(opened) == 0 {
 		c.fail("approval_prompt was never called")
 		return nil
@@ -553,7 +630,8 @@ func slashCase(cmd string, warmup bool) func(context.Context, scenarioEnv, *Case
 		if r := lastResult(msgs); r != nil {
 			c.note("result subtype=%s is_error=%t text=%q", r.Subtype, r.IsError, truncate(r.Text, 600))
 		}
-		c.sample(cmd+" output", a.Since(from))
+		c.msgs = a.Since(from)
+		c.sample(cmd+" output", c.msgs)
 		return nil
 	}
 }
@@ -581,10 +659,11 @@ func runT10(ctx context.Context, env scenarioEnv, c *CaseResult) error {
 		return err
 	}
 	found := false
-	for _, s := range c.Samples {
-		if strings.Contains(s, `"compact_boundary"`) {
+	for _, m := range c.msgs {
+		if m.Msg.Kind == protocol.KindCompactBoundary {
 			found = true
-			if !strings.Contains(s, "pre_tokens") {
+			c.sample("compact_boundary", []timedMessage{m})
+			if !strings.Contains(string(m.Msg.Raw), "pre_tokens") {
 				c.fail("compact_boundary has no pre_tokens")
 			}
 		}
@@ -601,7 +680,7 @@ func runT12(ctx context.Context, env scenarioEnv, c *CaseResult) error {
 		c.note("SIGINT is not available on Windows")
 		return nil
 	}
-	h, a, _, done, err := start(env, c, AllowAll, 0, "t12")
+	_, a, _, done, err := start(env, c, AllowAll, 0, "t12")
 	if err != nil {
 		return err
 	}
@@ -612,15 +691,11 @@ func runT12(ctx context.Context, env scenarioEnv, c *CaseResult) error {
 	}
 	wctx, cancel := context.WithTimeout(ctx, env.TurnLimit)
 	defer cancel()
-	// Wait until the Bash call is approved, then give it time to start.
-	// Chờ tới khi lệnh Bash được duyệt, rồi đợi thêm cho nó chạy.
-	for len(h.Opened("t12")) == 0 {
-		select {
-		case <-wctx.Done():
-			c.fail("Bash was never requested")
-			return nil
-		case <-time.After(200 * time.Millisecond):
-		}
+	// Wait until Claude calls Bash, then give the command time to start.
+	// Chờ tới khi Claude gọi Bash, rồi đợi thêm cho lệnh chạy.
+	if _, err := a.WaitFor(wctx, from, hasToolUse("Bash")); err != nil {
+		c.fail("Bash was never called: %v", err)
+		return nil
 	}
 	time.Sleep(5 * time.Second)
 	intAt := time.Now()
@@ -713,14 +788,10 @@ func runT14(ctx context.Context, env scenarioEnv, c *CaseResult) error {
 	}
 	wctx, cancel := context.WithTimeout(ctx, env.TurnLimit)
 	defer cancel()
-	for len(h.Opened("t14")) == 0 {
-		select {
-		case <-wctx.Done():
-			done()
-			c.fail("Bash was never requested")
-			return nil
-		case <-time.After(200 * time.Millisecond):
-		}
+	if _, err := a.WaitFor(wctx, 0, hasToolUse("Bash")); err != nil {
+		done()
+		c.fail("Bash was never called: %v", err)
+		return nil
 	}
 	time.Sleep(2 * time.Second)
 	p, err := os.FindProcess(a.r.PID())

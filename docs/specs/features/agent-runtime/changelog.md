@@ -1,5 +1,19 @@
 # Changelog — agent-runtime
 
+## v1.2 — 2026-11-01
+
+Kết quả lần chạy spike đầu tiên trên máy Đức: trả lời Q-1, Q-3, Q-4, Q-6, phát hiện approval bị bypass bởi settings của owner.
+
+- requirements.md: R-8 viết lại (Claude Code tự xếp hàng, runner đếm `pending`); R-10 ghi input và allow đã xác nhận; R-15 ghi nguồn context và quota; thêm SEC-5 (`permissions.ask`); bỏ marker Q-6; contract surface thêm `tool_result_meta`; thêm Q-7
+- design.md: Step 1 bỏ `ErrBusy`; state machine `running` nhận Send, về `idle` khi `pending` = 0; bỏ `ErrBusy` khỏi error mapping; test plan thêm `TestSendWhileRunningQueues`, `TestCheckNotBypassedCatchesUserRule`; stub thêm TD-6
+- tasks.md: Status D ghi lần chạy 1; tick gửi khi đang chạy, định danh agent, stub `send_message`, lần chạy 1; thêm item SEC-5 và case Q-7
+- gherkin/agent-session.feature: R-8 thêm điều kiện rảnh lại; thêm scenario SEC-5
+- assumptions.md / tech-debt.md: A-1, A-4 confirmed; A-3 một phần; thêm A-5, A-6, TD-6; TD-4 cập nhật (bỏ `ForceSend`)
+- Resolved: Q-1 → Claude Code xếp hàng, mỗi prompt một `result` (T3, 2026-11-01); Q-3 → context từ `result.modelUsage`, quota chỉ có text `/usage` (T9, T11); Q-4 → path `/mcp/<agent>` + bearer header hoạt động (T15); Q-6 → `system/init` phát ở đầu mỗi turn (T1, T9)
+- Upstream: claude 2.1.316
+- Reason: report `docs/spike-report.md` do Đức chạy; T5 cho thấy `permission_decision.source = user_permanent`: Bash được rule trong settings của owner duyệt mà không qua `approval_prompt`
+- Follow-ups outside this folder: none
+
 ## v1.1 — 2026-11-01
 
 Implement spike: decoder, runner, MCP server, `cmd/spike` với T1–T15 tự động; spec cập nhật theo code.

@@ -27,7 +27,6 @@ Mỗi agent chạy dưới dạng một process `claude -p` giữ stdin mở, n�
 - R-1: WHEN orchestrator khởi động một agent, THE SYSTEM SHALL spawn `claude -p --input-format stream-json --output-format stream-json --verbose` với `cwd` là thư mục của agent và không bật `--bare`. (platform)
 - R-2: THE SYSTEM SHALL truyền cho process con một env theo allowlist (`HOME`, `PATH`, `USER`, `LOGNAME`, `SHELL`, `TERM`, `LANG`, `LC_*`, `TMPDIR`, `TZ`, `XDG_*`, `CLAUDE_CONFIG_DIR`, biến proxy, biến hệ thống Windows), không có bất kỳ `ANTHROPIC_*`, `CLAUDE_CODE_OAUTH_TOKEN` hay biến chọn provider, để `claude` dùng login subscription của owner. (platform)
 - R-3: IF không có dòng stdout nào trong 90 giây sau khi gửi prompt, hoặc có `system/api_retry` với `error = authentication_failed`, THEN THE SYSTEM SHALL đánh dấu agent `failed` với lý do và dừng process. (platform)
-  > ⚠️ Not confirmed: `system/init` chỉ xuất hiện sau user message đầu tiên chứ không ngay khi spawn — nên timeout đo từ lúc gửi prompt, không từ lúc spawn. (Q-6)
 
 ### Giao việc và stream
 
@@ -35,8 +34,8 @@ Mỗi agent chạy dưới dạng một process `claude -p` giữ stdin mở, n�
 - R-5: WHILE agent đang `running`, THE SYSTEM SHALL phát mọi dòng stdout thành event typed (init, assistant text/tool_use, user tool_result, stream_event delta, result) theo đúng thứ tự, kèm `session_id`. (platform)
 - R-6: IF một dòng stdout không parse được hoặc có `type` lạ, THEN THE SYSTEM SHALL giữ dòng thô trong event `unknown` và không dừng stream. (platform)
 - R-7: WHEN nhận event `result`, THE SYSTEM SHALL chuyển agent về `idle` và lưu `session_id`, cost, usage của turn. (platform)
-- R-8: WHEN user gửi prompt khi agent đang `running`, THE SYSTEM SHALL đưa prompt vào hàng đợi của agent.
-  > ⚠️ Not confirmed: ghi thêm dòng vào stdin khi turn đang chạy thì Claude Code xếp hàng hay chèn vào turn hiện tại — quyết định có cần hàng đợi phía Go. Tới khi có kết quả T3, runner trả `ErrBusy`. (Q-1)
+- R-8: WHEN user gửi prompt khi agent đang `running`, THE SYSTEM SHALL ghi ngay prompt lên stdin (Claude Code tự xếp hàng và trả một `result` riêng cho mỗi prompt), đếm số prompt chưa có `result`, và chỉ chuyển agent về `idle` khi số đó về 0. (platform)
+  > ⚠️ Not confirmed: SIGINT khi còn prompt xếp hàng thì Claude Code bỏ hay giữ các prompt đó — quyết định runner có phải reset bộ đếm khi interrupt. (Q-7)
 
 ### Duyệt quyền
 
@@ -45,7 +44,8 @@ Mỗi agent chạy dưới dạng một process `claude -p` giữ stdin mở, n�
   - on `allowed`: trả allow cho Claude Code;
   - on `denied`: trả deny kèm reason;
   - on `expired`: trả deny với reason "không có người duyệt trước hạn".
-  > ⚠️ Not confirmed: schema input/output chính xác của permission prompt tool. Spike implement theo A-3; phải được T5/T6 xác nhận trước khi dùng ngoài spike. (Q-2)
+  Input đã xác nhận ở T8: `tool_name`, `input`, `tool_use_id`. Output allow `{"behavior":"allow","updatedInput":{...}}` đã xác nhận ở T8, T15.
+  > ⚠️ Not confirmed: output deny `{"behavior":"deny","message":...}` và Claude Code có timeout tool call khi chờ lâu không — T6, T7 chưa chạy được vì Bash bị rule của owner duyệt thẳng (xem SEC-5). (Q-2, Q-5)
 - R-11: IF MCP server không sẵn sàng khi agent khởi động, THEN THE SYSTEM SHALL không spawn agent và báo lỗi readiness. (platform)
 
 ### Dừng và khôi phục
@@ -57,7 +57,7 @@ Mỗi agent chạy dưới dạng một process `claude -p` giữ stdin mở, n�
 ### Lệnh
 
 - R-15: WHEN user gửi `/compact` hoặc `/context`, THE SYSTEM SHALL chuyển nguyên văn thành prompt và phát event kết quả (`compact_boundary` / context usage).
-  > ⚠️ Not confirmed: payload của `/context` và `/usage` (quota Max) ở stream-json — chặn hiển thị context và quota. (Q-3)
+  Context: lấy từ `result.usage` và `result.modelUsage.<model>.contextWindow` (có cấu trúc); `/context` chỉ trả markdown ("Tokens: 28.2k / 1m (3%)") nên chỉ dùng để hiển thị nguyên văn. Quota Max: `/usage` chỉ trả text ("Current session: 45% used · resets …", "Current week (all models): 31% used · resets …"), parse best-effort (A-5, TD-6).
 
 ## Security
 
@@ -65,7 +65,8 @@ Mỗi agent chạy dưới dạng một process `claude -p` giữ stdin mở, n�
 - SEC-2: THE SYSTEM SHALL chạy agent với settings deny `Edit`/`Write` vào `.claude/**` và `crossSessionInbound: refuse`, vì `-p` chạy hooks và `.mcp.json` của thư mục kể cả khi chưa trust. (platform)
 - SEC-3: THE SYSTEM SHALL không log prompt, tool input hay tool output; event lưu DB thuộc feature audit sau.
 - SEC-4: THE SYSTEM SHALL bind MCP server vào loopback, cấp mỗi agent một URL `/mcp/<agent_id>` và một bearer token ngẫu nhiên 256 bit, kiểm token trên mọi request, và trả 401 khi token sai, agent lạ hoặc agent đã unregister. (platform)
-  > ⚠️ Not confirmed: Claude Code gửi header `Authorization` trong `--mcp-config` trên mọi request — chọn theo A-4, xác nhận ở T15. (Q-4)
+- SEC-5: THE SYSTEM SHALL đặt các tool built-in làm thay đổi máy, ra mạng, sinh việc hoặc lên lịch (`AskTools`: `Bash`, `Edit`, `Write`, `WebFetch`, `Task`, `Skill`, `CronCreate`, …) vào `permissions.ask` của `--settings`, để rule `allow` trong `~/.claude/settings.json` của owner không duyệt thẳng thay cho inbox (`ask` thắng `allow`). (platform)
+  > ⚠️ Not confirmed: rule `ask` từ `--settings` ở `-p` có chuyển sang `--permission-prompt-tool` không — kiểm ở lần chạy lại T5–T7. (A-6)
 
 ## Contract surface
 
@@ -73,10 +74,11 @@ Mỗi agent chạy dưới dạng một process `claude -p` giữ stdin mở, n�
 |---|---|---|---|
 | CLI | `claude -p` flags | Anthropic | [CLI reference](https://code.claude.com/docs/en/cli-reference.md), pin version khi spike |
 | Stream | stream-json in/out | Anthropic | [Headless](https://code.claude.com/docs/en/headless.md) |
-| MCP tool | `approval_prompt` | this feature | input `tool_name`, `input`; output text JSON `{behavior, updatedInput \| message}` theo A-3 ⚠️ Q-2 |
+| MCP tool | `approval_prompt` | this feature | input `tool_name`, `input`, `tool_use_id` (T8); output text JSON `{behavior, updatedInput \| message}`, deny ⚠️ Q-2 |
 | MCP tool | `send_message` | feature office-bus (sau) | stub (TD-3): `to`, `text` ≤ 4000 ký tự, trả `queued` |
 | Make | `spike-preflight`, `spike`, `spike-test` | this feature | biến `SPIKE_CLAUDE`, `SPIKE_MODEL`, `SPIKE_DIR`, `SPIKE_ONLY`, `SPIKE_T7_WAIT` |
 | Env var | `ANTHROPIC_API_KEY` | Anthropic | phải bị loại khỏi env con (R-2) |
+| Stream field | `tool_result_meta[].permission_decision` | Anthropic | chưa có docs; `source` + `reason_type` cho biết ai duyệt (T5); spike dùng để phát hiện bypass |
 
 ## External facts
 
@@ -97,9 +99,6 @@ Mỗi agent chạy dưới dạng một process `claude -p` giữ stdin mở, n�
 
 | ID | Câu hỏi | Owner | Liên quan |
 |---|---|---|---|
-| Q-1 | Hành vi khi ghi prompt lúc turn đang chạy | spike T3 | R-8 |
-| Q-2 | Schema permission prompt tool | spike T5–T7 | R-10, A-3 |
-| Q-3 | Payload `/context`, `/usage` | spike T9, T11 | R-15 |
-| Q-4 | Định danh agent ở MCP server | spike T15 | SEC-4, A-4 |
-| Q-5 | MCP tool chờ duyệt vài phút có bị Claude Code timeout không; nếu có thì đó là trần của `ORCH_APPROVAL_TIMEOUT` | spike T7 | R-10 |
-| Q-6 | `system/init` có đến trước user message đầu tiên không | spike T1 | R-3 |
+| Q-2 | Output deny của permission prompt tool (input và allow đã xác nhận) | chạy lại T6 | R-10, A-3 |
+| Q-5 | MCP tool chờ duyệt vài phút có bị Claude Code timeout không; nếu có thì đó là trần của `ORCH_APPROVAL_TIMEOUT` | chạy lại T7 | R-10 |
+| Q-7 | SIGINT khi còn prompt xếp hàng thì các prompt đó còn không | spike (case mới) | R-8 |
