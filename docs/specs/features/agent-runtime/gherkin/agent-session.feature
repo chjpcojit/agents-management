@@ -1,4 +1,4 @@
-# Source: ../requirements.md v1.1
+# Source: ../requirements.md v1.2
 @wip
 Feature: Chạy agent qua claude -p
 
@@ -57,6 +57,7 @@ Feature: Chạy agent qua claude -p
     Given agent "agent-a" đang chạy một việc
     When người dùng giao thêm một việc
     Then việc mới được xếp hàng cho "agent-a"
+    And "agent-a" chỉ rảnh lại sau khi xong cả hai việc
 
   # R-9
   Scenario: Agent khởi động với kênh duyệt của orchestrator
@@ -112,3 +113,10 @@ Feature: Chạy agent qua claude -p
     Given agent "agent-a" và agent "agent-b" cùng chạy
     When agent "agent-a" gọi công cụ duyệt bằng địa chỉ của agent "agent-b"
     Then yêu cầu bị từ chối và không có yêu cầu duyệt nào được mở cho agent "agent-b"
+
+  # SEC-5
+  Scenario: Quyền cho phép sẵn trong máy owner không thay được inbox
+    Given cấu hình riêng của owner cho phép chạy lệnh shell không cần hỏi
+    When agent "agent-a" xin chạy một lệnh shell
+    Then yêu cầu duyệt xuất hiện trong inbox
+    And lệnh chỉ chạy sau khi owner cho phép

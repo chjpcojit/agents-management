@@ -38,7 +38,6 @@ const (
 // Errors returned by Runner methods.
 // Các lỗi do method của Runner trả về.
 var (
-	ErrBusy          = errors.New("agent is running a turn")
 	ErrProcessExited = errors.New("agent process has exited")
 	ErrInvalidConfig = errors.New("invalid runner config")
 )
@@ -53,6 +52,22 @@ const MCPServerName = "orchestrator"
 // PermissionPromptTool is the tool Claude Code calls for every permission decision.
 // PermissionPromptTool là tool Claude Code gọi cho mọi quyết định cấp quyền.
 const PermissionPromptTool = "mcp__" + MCPServerName + "__approval_prompt"
+
+// AskTools are the built-in tools that change the machine, reach the network, spawn work or schedule
+// it. Each is forced through the permission prompt tool. Read-only tools are left to Claude Code.
+// A new mutating tool in a later claude version is not covered until added here: spike checks every
+// tool_result's permission source to catch it (see cmd/spike).
+//
+// AskTools là các tool built-in làm thay đổi máy, ra mạng, sinh việc hoặc lên lịch việc. Mỗi tool bị
+// buộc đi qua permission prompt tool. Tool chỉ đọc để Claude Code tự xử lý. Tool ghi mới ở version
+// claude sau chưa được phủ cho tới khi thêm vào đây: spike kiểm nguồn quyết định của mọi tool_result
+// để bắt trường hợp đó (xem cmd/spike).
+var AskTools = []string{
+	"Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch",
+	"Task", "Skill", "Workflow", "Monitor", "TaskStop",
+	"CronCreate", "CronDelete", "ScheduleWakeup", "RemoteTrigger", "PushNotification",
+	"EnterWorktree", "ExitWorktree", "DesignSync",
+}
 
 // maxLineBytes caps one stdout line; longer lines are truncated and reported as unknown.
 // maxLineBytes giới hạn một dòng stdout; dòng dài hơn bị cắt và báo là unknown.
@@ -152,6 +167,7 @@ type Runner struct {
 	sessionID string
 	turnSeq   uint64 // increments on every Send / tăng mỗi lần Send
 	sawOutput uint64 // last turnSeq that produced output / turnSeq gần nhất đã có output
+	pending   int    // prompts written without a result yet / số prompt đã ghi mà chưa có result
 
 	emitMu sync.Mutex // serialises emit against close / tuần tự hóa emit với việc đóng channel
 	closed bool
@@ -246,6 +262,11 @@ func BuildArgs(cfg Config) ([]string, error) {
 			// An agent must not rewrite its own hooks or settings: -p runs them without a trust prompt.
 			// Agent không được tự sửa hooks hay settings của mình: -p chạy chúng mà không hỏi trust.
 			"deny": []string{"Edit(.claude/**)", "SendMessage", "ListAgents"},
+			// Ask beats allow, so these always reach the approval inbox even when the owner's own
+			// ~/.claude/settings.json allows them (spike T5 saw Bash approved by a user rule).
+			// Ask thắng allow, nên các tool này luôn đi qua inbox duyệt kể cả khi settings riêng của
+			// owner trong ~/.claude/settings.json cho phép (spike T5 thấy Bash được rule của user duyệt thẳng).
+			"ask": AskTools,
 		},
 	})
 	if err != nil {
@@ -317,21 +338,24 @@ func (r *Runner) State() State { r.mu.Lock(); defer r.mu.Unlock(); return r.stat
 // SessionID trả về session id để dùng cho Resume sau này.
 func (r *Runner) SessionID() string { r.mu.Lock(); defer r.mu.Unlock(); return r.sessionID }
 
+// Pending returns how many written prompts still wait for a result.
+// Pending trả về số prompt đã ghi còn đang chờ result.
+func (r *Runner) Pending() int { r.mu.Lock(); defer r.mu.Unlock(); return r.pending }
+
 // PID returns the process id. / PID trả về process id.
 func (r *Runner) PID() int { return r.cmd.Process.Pid }
 
 // ExitCode is valid after Done is closed. / ExitCode chỉ có nghĩa sau khi Done đóng.
 func (r *Runner) ExitCode() int { <-r.done; return r.exit }
 
-// Send writes one prompt. It fails with ErrBusy while a turn runs and ErrProcessExited after exit.
-// Send ghi một prompt. Lỗi ErrBusy khi đang chạy turn và ErrProcessExited khi process đã thoát.
-func (r *Runner) Send(text string) error { return r.send(text, false) }
-
-// ForceSend writes a prompt even while a turn runs. Spike only: observes CLI behaviour (Q-1).
-// ForceSend ghi prompt kể cả khi đang chạy turn. Chỉ dùng cho spike để quan sát hành vi CLI (Q-1).
-func (r *Runner) ForceSend(text string) error { return r.send(text, true) }
-
-func (r *Runner) send(text string, force bool) error {
+// Send writes one prompt. Claude Code queues a prompt written during a running turn and answers it
+// with its own result afterwards (spike T3, Q-1), so Send never blocks; the agent stays running until
+// every written prompt has a result. It fails with ErrProcessExited after exit.
+//
+// Send ghi một prompt. Claude Code tự xếp hàng prompt ghi vào khi turn đang chạy và trả result riêng
+// cho nó sau đó (spike T3, Q-1), nên Send không chặn; agent ở running tới khi mọi prompt đã ghi có
+// result. Lỗi ErrProcessExited khi process đã thoát.
+func (r *Runner) Send(text string) error {
 	line, err := protocol.EncodeUserMessage(text)
 	if err != nil {
 		return err
@@ -341,12 +365,8 @@ func (r *Runner) send(text string, force bool) error {
 	case StateStopped, StateFailed:
 		r.mu.Unlock()
 		return ErrProcessExited
-	case StateRunning:
-		if !force {
-			r.mu.Unlock()
-			return ErrBusy
-		}
 	}
+	r.pending++
 	r.turnSeq++
 	seq := r.turnSeq
 	changed := r.setStateLocked(StateRunning)
@@ -472,8 +492,15 @@ func (r *Runner) onMessage(msg protocol.Message) {
 		r.sessionID = msg.SessionID
 	}
 	var toIdle bool
-	if msg.Kind == protocol.KindResult && r.state == StateRunning {
-		toIdle = r.setStateLocked(StateIdle)
+	if msg.Kind == protocol.KindResult {
+		// Clamp: a result without a matching prompt (e.g. after an interrupt, Q-7) must not go negative.
+		// Chặn dưới 0: result không khớp prompt nào (ví dụ sau interrupt, Q-7) không được làm âm.
+		if r.pending > 0 {
+			r.pending--
+		}
+		if r.pending == 0 && r.state == StateRunning {
+			toIdle = r.setStateLocked(StateIdle)
+		}
 	}
 	r.mu.Unlock()
 

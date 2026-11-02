@@ -19,8 +19,7 @@ import (
 )
 
 const interactiveHelp = `commands:
-  <text>                 send a prompt (rejected while a turn runs)
-  :force <text>          send even while a turn runs (Q-1 / T3)
+  <text>                 send a prompt (queued by Claude Code while a turn runs)
   :int                   interrupt the running turn (SIGINT)
   :pending               list pending approvals
   :allow <id>            allow an approval (id prefix is enough)
@@ -174,21 +173,15 @@ func handleLine(ctx context.Context, h *harness, ag *agent, line string, printf 
 			return false
 		}
 		printf("approval %s → %s\n", short(a.ID), a.Status)
-	case ":force":
-		if err := ag.r.ForceSend(rest); err != nil {
-			printf("send: %v\n", err)
-		}
 	default:
 		if strings.HasPrefix(cmd, ":") {
 			printf("unknown command %s\n%s", cmd, interactiveHelp)
 			return false
 		}
 		if err := ag.r.Send(line); err != nil {
-			if errors.Is(err, claudecli.ErrBusy) {
-				printf("agent is busy: wait for the result, :int to interrupt, or :force to test Q-1\n")
-				return false
-			}
 			printf("send: %v\n", err)
+		} else if p := ag.r.Pending(); p > 1 {
+			printf("queued: %d prompts waiting for a result\n", p)
 		}
 	}
 	return false

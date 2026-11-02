@@ -108,6 +108,7 @@ func TestBuildArgs(t *testing.T) {
 		"-p", "--input-format stream-json", "--output-format stream-json", "--verbose",
 		"--strict-mcp-config", "--permission-prompt-tool " + claudecli.PermissionPromptTool,
 		"--session-id " + sid, "--model sonnet", `"crossSessionInbound":"refuse"`, `"Authorization":"Bearer tok"`,
+		`"ask":["Bash","Edit","Write"`,
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("args missing %q", want)
@@ -174,15 +175,38 @@ func TestMultiTurnAndStateMachine(t *testing.T) {
 	}
 }
 
-func TestSendWhileRunningIsBusy(t *testing.T) {
+// Claude Code queues a prompt written during a turn (spike T3); the runner stays running until both results.
+// Claude Code xếp hàng prompt ghi vào giữa turn (spike T3); runner ở running tới khi có đủ hai result.
+func TestSendWhileRunningQueues(t *testing.T) {
 	r := start(t, nil)
-	if err := r.Send("sleep 2"); err != nil {
+	if err := r.Send("sleep 1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Send("again"); !errors.Is(err, claudecli.ErrBusy) {
-		t.Fatalf("want ErrBusy, got %v", err)
+	if err := r.Send("again"); err != nil {
+		t.Fatalf("second send while running: %v", err)
 	}
-	nextResult(t, r)
+	if got := r.Pending(); got != 2 {
+		t.Fatalf("pending = %d, want 2", got)
+	}
+	// Check the event order, not State(): the reader may already be past the second result.
+	// Kiểm thứ tự event, không đọc State(): reader có thể đã đọc qua result thứ hai.
+	first := nextResult(t, r)
+	if got := resultText(first); got != "slept" {
+		t.Fatalf("first result %q", got)
+	}
+	second := nextResult(t, r)
+	if got := resultText(second); got != "echo: again" {
+		t.Fatalf("second result %q", got)
+	}
+	for _, e := range append(first, second...) {
+		if e.Type == claudecli.EventState && e.State == claudecli.StateIdle {
+			t.Fatal("runner went idle before the second result")
+		}
+	}
+	waitState(t, r, claudecli.StateIdle)
+	if got := r.Pending(); got != 0 {
+		t.Fatalf("pending = %d, want 0", got)
+	}
 }
 
 func TestGarbageLineKeepsStream(t *testing.T) {
