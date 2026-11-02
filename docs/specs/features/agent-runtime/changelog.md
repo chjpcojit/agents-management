@@ -1,5 +1,18 @@
 # Changelog — agent-runtime
 
+## v1.5 — 2026-11-02
+
+Lần chạy spike thứ 4 xác nhận cách hủy mới: dừng process group không để lại lệnh mồ côi và resume giữ hội thoại.
+
+- requirements.md: no change needed, checked
+- design.md: no change needed, checked
+- tasks.md: Status D ghi lần 4; tick Stop/shutdown/resume và T12
+- gherkin/agent-session.feature: no change needed, checked
+- assumptions.md / tech-debt.md: no change needed, checked
+- Upstream: claude 2.1.316
+- Reason: report lần 4 `docs/spike-report.md` (Đức, 2026-11-02, commit 55009e8)
+- Follow-ups outside this folder: none
+
 ## v1.4 — 2026-11-02
 
 Kết quả lần chạy spike thứ 3: giới hạn chờ duyệt đã nâng được; SIGINT không hủy được turn mà làm `claude` thoát.
