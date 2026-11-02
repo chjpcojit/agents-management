@@ -78,6 +78,7 @@ func TestScenariosAgainstFake(t *testing.T) {
 		ClaudeBin:  fakeBin(t),
 		SandboxDir: t.TempDir(),
 		T7Wait:     2 * time.Second,
+		T12Seconds: 4,
 		TurnLimit:  20 * time.Second,
 		Log:        newLogger(false),
 	}

@@ -84,10 +84,12 @@ Feature: Chạy agent qua claude -p
 
   # R-12
   Scenario: Hủy việc đang chạy
-    Given agent "agent-a" đang chạy lệnh "sleep 60"
+    Given agent "agent-a" đã được dặn nhớ từ khóa "HERON-3"
+    And agent "agent-a" đang chạy một lệnh dài 15 giây rồi tạo file "t12_done.txt"
     When người dùng hủy việc
-    Then agent "agent-a" chuyển về rảnh
-    And agent vẫn nhận việc mới được
+    Then agent "agent-a" chuyển sang đã dừng
+    And file "t12_done.txt" không bao giờ được tạo
+    And khi người dùng tiếp tục agent, agent vẫn nhớ từ khóa "HERON-3"
 
   # R-13
   Scenario: Agent chết và khôi phục

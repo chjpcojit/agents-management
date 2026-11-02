@@ -2,9 +2,11 @@ package claudecli_test
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strconv"
 	"strings"
@@ -69,6 +71,15 @@ func fakeClaude() int {
 			case <-time.After(time.Duration(n) * time.Second):
 				result("slept", false)
 			}
+		case p == "child":
+			// Spawn a long-running grandchild, like a Bash tool would, and report its pid.
+			// Sinh một process cháu chạy lâu, giống tool Bash, rồi báo pid của nó.
+			c := exec.CommandContext(context.Background(), "sleep", "30")
+			if err := c.Start(); err != nil {
+				result("child: "+err.Error(), true)
+				continue
+			}
+			result(strconv.Itoa(c.Process.Pid), false)
 		case p == "garbage":
 			fmt.Println("this is not json")
 			result("after garbage", false)

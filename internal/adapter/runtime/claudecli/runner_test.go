@@ -231,7 +231,7 @@ func TestGarbageLineKeepsStream(t *testing.T) {
 	}
 }
 
-func TestInterruptEndsTurnAndKeepsProcess(t *testing.T) {
+func TestStopEndsRunningTurn(t *testing.T) {
 	r := start(t, nil)
 	_ = r.Send("sleep 30")
 	// Wait for the tool_use so the fake is inside its sleep. / Chờ tool_use để fake đang ở trong sleep.
@@ -240,18 +240,18 @@ func TestInterruptEndsTurnAndKeepsProcess(t *testing.T) {
 			break
 		}
 	}
+	go drain(r)
 	begin := time.Now()
-	if err := r.Interrupt(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := r.Stop(ctx); err != nil {
 		t.Fatal(err)
 	}
-	evs := nextResult(t, r)
-	if resultText(evs) != "interrupted" || time.Since(begin) > 5*time.Second {
-		t.Fatalf("interrupt did not end the turn promptly: %q", resultText(evs))
+	if time.Since(begin) > 5*time.Second || r.State() != claudecli.StateStopped {
+		t.Fatalf("stop took %s, state %s", time.Since(begin), r.State())
 	}
-	waitState(t, r, claudecli.StateIdle)
-	_ = r.Send("still alive")
-	if got := resultText(nextResult(t, r)); got != "echo: still alive" {
-		t.Fatalf("process must accept prompts after interrupt, got %q", got)
+	if err := r.Send("x"); !errors.Is(err, claudecli.ErrProcessExited) {
+		t.Fatalf("send after stop: want ErrProcessExited, got %v", err)
 	}
 }
 

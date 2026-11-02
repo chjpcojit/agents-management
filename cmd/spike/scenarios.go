@@ -87,6 +87,7 @@ type scenarioEnv struct {
 	SandboxDir string
 	SamplesDir string
 	T7Wait     time.Duration
+	T12Seconds int // length of the command T12 cancels, default 15 / độ dài lệnh T12 hủy, mặc định 15
 	TurnLimit  time.Duration
 	Log        *slog.Logger
 }
@@ -132,7 +133,7 @@ func scenarios() []scenario {
 		{"T9", "/context", "Q-3, R-15", runT9},
 		{"T10", "/compact", "R-14", runT10},
 		{"T11", "/usage", "Q-3, R-15", runT11},
-		{"T12", "Interrupt (SIGINT) khi tool chạy lâu", "R-9", runT12},
+		{"T12", "Hủy lệnh đang chạy: dừng process group rồi resume", "R-12, R-13", runT12},
 		{"T13", "Resume session sau khi process tắt", "R-4", runT13},
 		{"T14", "Crash an toàn (kill -9)", "R-3", runT14},
 		{"T15", "2 agent song song, route đúng agent", "Q-4, SEC-4", runT15},
@@ -683,75 +684,98 @@ func runT10(ctx context.Context, env scenarioEnv, c *CaseResult) error {
 	return nil
 }
 
+// runT12 cancels a running command the only documented way: stop the process group, then resume.
+// SIGINT is not used: in run 3 it made claude exit with no result while the tool's child kept running.
+//
+// runT12 hủy lệnh đang chạy theo cách duy nhất có docs: dừng process group rồi resume.
+// Không dùng SIGINT: ở lần chạy 3 nó làm claude thoát không có result trong khi process con của tool vẫn chạy.
 func runT12(ctx context.Context, env scenarioEnv, c *CaseResult) error {
 	if runtime.GOOS == "windows" {
 		c.Status = StatusSkipped
-		c.note("SIGINT is not available on Windows")
+		c.note("process groups are not used on Windows")
 		return nil
 	}
-	_, a, _, done, err := start(env, c, AllowAll, 0, "t12")
+	h, err := env.harness(AllowAll, 0)
 	if err != nil {
 		return err
 	}
-	defer done()
+	defer h.Close()
+	dir, err := makeSandbox(env.SandboxDir, "t12")
+	if err != nil {
+		return err
+	}
+	raw, closeRaw := env.rawFile(c.ID, "t12")
+	defer closeRaw()
+	a, err := h.StartAgent(agentSpec{ID: "t12", Dir: dir, Raw: raw})
+	if err != nil {
+		return err
+	}
+	msgs, err := a.Turn(ctx, "Remember this code word for later: HERON-3. Reply with only: OK", env.TurnLimit)
+	if checkResultOK(c, "turn 1", msgs, err) == nil {
+		return nil
+	}
+	sid := a.r.SessionID()
+
+	secs := env.T12Seconds
+	if secs <= 0 {
+		secs = 15
+	}
+	marker := "t12_done.txt"
 	from := a.Len()
-	if err := a.r.Send(bashPrompt(longCommand(60))); err != nil {
+	if err := a.r.Send(bashPrompt(fmt.Sprintf("%s > /dev/null && touch %s", longCommand(secs), marker))); err != nil {
 		return err
 	}
 	wctx, cancel := context.WithTimeout(ctx, env.TurnLimit)
 	defer cancel()
-	// Wait until Claude calls Bash, then give the command time to start.
-	// Chờ tới khi Claude gọi Bash, rồi đợi thêm cho lệnh chạy.
 	if _, err := a.WaitFor(wctx, from, hasToolUse("Bash")); err != nil {
 		c.fail("Bash was never called: %v", err)
 		return nil
 	}
-	time.Sleep(5 * time.Second)
-	// The point of T12 is to cut a command that is still running; if it already returned, the case proves nothing.
-	// Mục tiêu của T12 là cắt một lệnh đang chạy; nếu lệnh đã trả kết quả thì case không chứng minh được gì.
+	settle := 3 * time.Second
+	if half := time.Duration(secs) * time.Second / 2; half < settle {
+		settle = half
+	}
+	time.Sleep(settle)
 	for _, m := range a.Since(from) {
 		for _, b := range m.Msg.Blocks {
 			if b.Type == "tool_result" {
-				c.fail("the command returned before SIGINT (is_error=%t): %s", b.IsError, truncate(string(m.Msg.Raw), 300))
+				c.fail("the command returned before Stop (is_error=%t): %s", b.IsError, truncate(string(m.Msg.Raw), 300))
 				return nil
 			}
 		}
 	}
-	intAt := time.Now()
-	if err := a.r.Interrupt(); err != nil {
-		c.fail("interrupt: %v", err)
-		return nil
-	}
-	ictx, icancel := context.WithTimeout(ctx, 30*time.Second)
-	defer icancel()
-	msgs, err := a.WaitFor(ictx, from, hasResults(1))
-	switch {
-	case errors.Is(err, context.DeadlineExceeded):
-		c.fail("no result within 30s of SIGINT")
-	case err != nil:
-		c.fail("after SIGINT: %v (exit %v)", err, exitCode(a))
-		return nil
-	default:
-		r := lastResult(msgs)
-		c.note("result %s is_error=%t %s after SIGINT", r.Subtype, r.IsError, time.Since(intAt).Round(time.Millisecond))
-	}
-	c.sample("after interrupt", msgs, protocol.KindResult, protocol.KindUser)
-	next, err := a.Turn(ctx, "Reply with exactly: AFTER", env.TurnLimit)
-	if r := checkResultOK(c, "turn after interrupt", next, err); r != nil {
-		c.note("process alive and answered: %q", truncate(r.Text, 40))
-	}
-	cctx, ccancel := context.WithTimeout(ctx, 10*time.Second)
-	defer ccancel()
-	_ = a.r.Close(cctx)
-	c.note("graceful close (stdin EOF) exit code %d; SIGTERM would give 143", a.r.ExitCode())
-	return nil
-}
 
-func exitCode(a *agent) any {
-	if e := a.Exited(); e != nil {
-		return e.ExitCode
+	stopAt := time.Now()
+	sctx, scancel := context.WithTimeout(ctx, 10*time.Second)
+	defer scancel()
+	if err := a.r.Stop(sctx); err != nil {
+		c.fail("stop: %v", err)
+		return nil
 	}
-	return "running"
+	c.note("stopped in %s, exit code %d", time.Since(stopAt).Round(time.Millisecond), a.r.ExitCode())
+
+	// If the command survived its agent, it finishes and creates the marker.
+	// Nếu lệnh sống sót sau khi agent dừng, nó sẽ chạy xong và tạo file đánh dấu.
+	time.Sleep(time.Duration(secs+5) * time.Second)
+	if _, err := os.Stat(filepath.Join(dir, marker)); err == nil {
+		c.fail("the command kept running after Stop and created %s: its process was orphaned", marker)
+	} else {
+		c.note("no %s after %ds: the command died with its agent", marker, secs+5)
+	}
+
+	resumed, err := h.StartAgent(agentSpec{ID: "t12", Dir: dir, Resume: sid, Raw: raw})
+	if err != nil {
+		return err
+	}
+	next, err := resumed.Turn(ctx, "What was the code word I gave you? Reply with only the code word.", env.TurnLimit)
+	if r := checkResultOK(c, "resumed turn", next, err); r != nil {
+		if !strings.Contains(strings.ToUpper(r.Text), "HERON-3") {
+			c.fail("resumed session did not recall the code word: %q", truncate(r.Text, 200))
+		} else {
+			c.note("resumed session %s recalled the code word", sid)
+		}
+	}
+	return nil
 }
 
 func runT13(ctx context.Context, env scenarioEnv, c *CaseResult) error {

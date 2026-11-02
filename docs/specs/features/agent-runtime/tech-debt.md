@@ -8,3 +8,4 @@
 | TD-4 | Runner được `cmd/spike` gọi trực tiếp, chưa có port `AgentRuntime` (`ForceSend` đã bỏ ở v1.2) | Medium | Chưa biết hành vi thật để chốt port | Use case chưa dùng được runner | Sau khi chạy lại T5–T7: thêm port | Open |
 | TD-5 | `AwaitDecision` poll repository mỗi 250ms | Low | Repository in-memory, chưa có event bus | Trễ tối đa 250ms, tốn CPU nhẹ khi nhiều approval chờ | Notify qua `EventPublisher` của approval-inbox | Open |
 | TD-6 | Quota Max lấy bằng parse text của `/usage` | Medium | Không có field có cấu trúc (T11) | Đổi wording ở version `claude` sau là mất số quota, scheduler đoán sai | Parse có test theo version pin; khi không parse được thì hiện nguyên văn và không chặn queue | Open |
+| TD-7 | Windows không có process group: Stop chỉ kill `claude`, lệnh con có thể sót | Low | Máy owner là macOS; Windows chưa trong phạm vi | Process mồ côi chạy tiếp trên Windows | Job object (`CreateJobObject` + `KILL_ON_JOB_CLOSE`) | Open |

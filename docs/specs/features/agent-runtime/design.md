@@ -101,7 +101,11 @@ Step 2 — Chờ quyết định (`mcpbus`)
 
 ### Hủy turn, crash, shutdown
 
-`Interrupt → SIGINT → chờ result (≤ 10s, sau đó SIGTERM)`. `process exit → event agent_exited(code) → status stopped`. `Shutdown → đóng stdin → chờ ORCH_SHUTDOWN_TIMEOUT → SIGTERM`.
+Mỗi agent chạy trong process group riêng (`Setpgid`), nên lệnh con của tool (vd `ping`) cùng group với `claude`.
+
+`Stop → SIGTERM group → chờ ≤ 3s → SIGKILL group → event agent_exited → status stopped → Start(--resume)` (R-12). Không dùng SIGINT: T12 lần 3 cho thấy `claude` thoát khi nhận SIGINT lúc tool đang chạy.
+`process exit → SIGKILL group (dọn con mồ côi) → event agent_exited(code) → status stopped` (R-13). `Shutdown → đóng stdin → chờ ORCH_SHUTDOWN_TIMEOUT → SIGKILL group`.
+Windows chưa có process group: Stop chỉ kill process `claude` (TD-7).
 
 ## State machine
 
@@ -110,7 +114,7 @@ stateDiagram-v2
     [*] --> idle: Start (spawn)
     idle --> running: Send
     running --> idle: result
-    running --> idle: Interrupt + result
+    running --> stopped: Stop (kill group)
     running --> failed: 90s không output / auth lỗi
     idle --> stopped: process exit
     running --> stopped: process exit
@@ -123,7 +127,7 @@ Runner không có `starting`: Claude Code phát `system/init` ở đầu mỗi t
 | State | Allowed actions | Limits | Exit |
 |---|---|---|---|
 | `idle` | Send, Close | — | `running` / `stopped` |
-| `running` | Send (xếp hàng), Interrupt, Close | 90s chờ output đầu tiên | `idle` khi `pending` = 0 / `stopped` / `failed` |
+| `running` | Send (xếp hàng), Stop, Close | 90s chờ output đầu tiên | `idle` khi `pending` = 0 / `stopped` / `failed` |
 | `stopped` | Start mới với `--resume` | — | `idle` (Runner mới) |
 | `failed` | none | terminal tới khi sửa auth | — |
 
@@ -145,9 +149,10 @@ Biến mới dự kiến: `ORCH_CLAUDE_BIN` (path tới `claude`, mặc định 
 |---|---|---|---|
 | `TestDecoderGolden` trên `testdata/*.ndjson` | R-5, R-6 | B | `claudecli` |
 | `TestRunnerEnvAllowlist` | R-2 | B | `claudecli` |
-| `TestRunnerStateMachine` (multi-turn, busy, garbage, interrupt, crash, kill, auth fail, silent, close) với binary test làm claude giả | R-3, R-4, R-6, R-7, R-12, R-13, R-14 | B | `claudecli` |
+| `TestRunnerStateMachine` (multi-turn, busy, garbage, stop, crash, kill, auth fail, silent, close) với binary test làm claude giả | R-3, R-4, R-6, R-7, R-12, R-13, R-14 | B | `claudecli` |
 | `TestBuildArgs` (không `--bare`, có `--strict-mcp-config`, settings deny và ask) | R-1, R-9, SEC-2, SEC-5 | B | `claudecli` |
 | `TestSendWhileRunningQueues` | R-8 | B | `claudecli` |
+| `TestStopEndsRunningTurn`, `TestStopKillsChildProcesses`, `TestExitReapsLeftoverChildren` | R-12, R-13 | B | `claudecli` |
 | `TestBuildArgs` (`timeout` trong mcp-config) | R-16 | B | `claudecli` |
 | `TestAbandon`, `TestAbandonEndsPendingOnly`, `TestCancelledCallAbandonsApproval` | R-17 | B | `domain`, `usecase/approval`, `delivery/mcpbus` |
 | `TestCheckNotBypassedCatchesUserRule` (dòng NDJSON thật từ T5) | SEC-5 | B | `cmd/spike` |
