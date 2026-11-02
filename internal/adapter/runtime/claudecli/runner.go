@@ -200,6 +200,7 @@ func Start(cfg Config, log *slog.Logger) (*Runner, error) {
 	// Process sống lâu hơn mọi request; Close quản lý vòng đời của nó nên không dùng context ở đây.
 	cmd := exec.Command(cfg.Bin, args...) //nolint:noctx,gosec // binary and args come from validated config / binary và args lấy từ config đã validate
 	cmd.Dir = cfg.Dir
+	setProcessGroup(cmd)
 	cmd.Env = AllowedEnv(os.Environ(), cfg.ExtraEnv)
 
 	stdin, err := cmd.StdinPipe()
@@ -415,19 +416,39 @@ func (r *Runner) watchFirstOutput(seq uint64) {
 	}
 }
 
-// Interrupt sends SIGINT so the current turn ends with a result and the process stays alive.
-// On Windows os.Interrupt is not supported and this returns an error.
+// Stop cancels whatever the agent is doing: SIGTERM to its process group, then SIGKILL after 3s or
+// when ctx ends. There is no documented way to cancel one turn and keep the process: in spike T12,
+// SIGINT during a running tool made claude exit. Callers continue the session with Resume.
 //
-// Interrupt gửi SIGINT để turn hiện tại kết thúc bằng một result và process vẫn sống.
-// Trên Windows os.Interrupt không được hỗ trợ nên hàm này trả lỗi.
-func (r *Runner) Interrupt() error {
-	if r.State() != StateRunning {
+// Stop hủy việc agent đang làm: SIGTERM cho process group, rồi SIGKILL sau 3s hoặc khi ctx kết thúc.
+// Không có cách có docs để hủy một turn mà giữ process: ở spike T12, SIGINT khi tool đang chạy làm
+// claude thoát. Caller tiếp tục session bằng Resume.
+func (r *Runner) Stop(ctx context.Context) error {
+	select {
+	case <-r.done:
 		return nil
+	default:
 	}
-	if err := r.cmd.Process.Signal(os.Interrupt); err != nil {
-		return fmt.Errorf("interrupt: %w", err)
+	r.log.Info("agent stop requested")
+	_ = r.terminate()
+	return r.waitOrKill(ctx)
+}
+
+// waitOrKill waits up to 3s (or ctx) for exit, then kills the group and waits.
+// waitOrKill chờ tối đa 3s (hoặc ctx) cho process thoát, rồi kill cả group và chờ.
+func (r *Runner) waitOrKill(ctx context.Context) error {
+	t := time.NewTimer(3 * time.Second)
+	defer t.Stop()
+	select {
+	case <-r.done:
+		return nil
+	case <-ctx.Done():
+	case <-t.C:
 	}
-	r.log.Info("agent interrupted")
+	if err := r.killGroup(); err != nil {
+		return fmt.Errorf("kill: %w", err)
+	}
+	<-r.done
 	return nil
 }
 
@@ -445,16 +466,7 @@ func (r *Runner) Close(ctx context.Context) error {
 	}
 	r.log.Warn("agent did not exit after stdin closed, terminating")
 	_ = r.terminate()
-	select {
-	case <-r.done:
-		return nil
-	case <-time.After(3 * time.Second):
-	}
-	if err := r.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return fmt.Errorf("kill: %w", err)
-	}
-	<-r.done
-	return nil
+	return r.waitOrKill(context.Background())
 }
 
 func (r *Runner) readStdout(stdout io.Reader) {
@@ -550,6 +562,11 @@ func (r *Runner) fail(reason string) {
 }
 
 func (r *Runner) finish(waitErr error) {
+	// Reap commands the agent's tools left behind; the group outlives its leader (spike T12).
+	// Dọn các lệnh mà tool của agent bỏ lại; group sống lâu hơn leader của nó (spike T12).
+	if err := r.killGroup(); err != nil {
+		r.log.Warn("kill leftover process group", slog.Any("error", err))
+	}
 	code := 0
 	var exitErr *exec.ExitError
 	switch {

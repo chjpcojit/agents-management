@@ -35,7 +35,6 @@ Mỗi agent chạy dưới dạng một process `claude -p` giữ stdin mở, n�
 - R-6: IF một dòng stdout không parse được hoặc có `type` lạ, THEN THE SYSTEM SHALL giữ dòng thô trong event `unknown` và không dừng stream. (platform)
 - R-7: WHEN nhận event `result`, THE SYSTEM SHALL chuyển agent về `idle` và lưu `session_id`, cost, usage của turn. (platform)
 - R-8: WHEN user gửi prompt khi agent đang `running`, THE SYSTEM SHALL ghi ngay prompt lên stdin (Claude Code tự xếp hàng và trả một `result` riêng cho mỗi prompt), đếm số prompt chưa có `result`, và chỉ chuyển agent về `idle` khi số đó về 0. (platform)
-  > ⚠️ Not confirmed: SIGINT khi còn prompt xếp hàng thì Claude Code bỏ hay giữ các prompt đó — quyết định runner có phải reset bộ đếm khi interrupt. (Q-7)
 
 ### Duyệt quyền
 
@@ -47,14 +46,15 @@ Mỗi agent chạy dưới dạng một process `claude -p` giữ stdin mở, n�
   Input đã xác nhận ở T8: `tool_name`, `input`, `tool_use_id`. Output allow `{"behavior":"allow","updatedInput":{...}}` đã xác nhận ở T8, T15.
   Output deny `{"behavior":"deny","message":...}` đã xác nhận ở T6 (lần 2): Claude nhận nguyên văn lý do và không retry.
 - R-16: THE SYSTEM SHALL đặt `timeout` của MCP server orchestrator trong `--mcp-config` bằng deadline duyệt cộng 30 giây, vì mặc định Claude Code bỏ lệnh gọi duyệt sau 60 giây (T7 lần 2). (platform)
-  > ⚠️ Not confirmed: field `timeout` (ms) của server type http có trong schema config của CLI 2.1.316 nhưng chưa có trong docs công khai — kiểm ở lần chạy lại T7. (A-7)
+  Đã xác nhận ở T7 lần 3: chờ duyệt 2 phút vẫn nhận được quyết định (A-7).
 - R-17: IF Claude Code hủy lệnh gọi `approval_prompt` trước khi có quyết định, THEN THE SYSTEM SHALL chuyển approval sang `expired` ngay với `decided_by = system`, để inbox không còn yêu cầu không ai chờ và quyết định đến sau bị từ chối. (platform)
 - R-11: IF MCP server không sẵn sàng khi agent khởi động, THEN THE SYSTEM SHALL không spawn agent và báo lỗi readiness. (platform)
 
 ### Dừng và khôi phục
 
-- R-12: WHEN user hủy turn đang chạy, THE SYSTEM SHALL gửi SIGINT cho process, chờ event `result`, và giữ process để nhận prompt tiếp. (platform)
-- R-13: WHEN process thoát ngoài ý muốn, THE SYSTEM SHALL phát event `agent_exited` có exit code, đánh dấu agent `stopped`, và cho phép khởi động lại bằng `--resume <session_id>` đã lưu. (platform)
+- R-12: WHEN user hủy turn đang chạy, THE SYSTEM SHALL gửi SIGTERM cho cả process group của agent, sau 3 giây SIGKILL group nếu còn sống, đánh dấu agent `stopped`, và cho phép tiếp tục bằng `--resume <session_id>` (giữ lịch sử hội thoại). Prompt đang xếp hàng bị bỏ. (platform)
+  Lý do: T12 lần 3 cho thấy SIGINT khi tool đang chạy làm `claude` thoát (exit 0, không có `result`), nên không giữ được process.
+- R-13: WHEN process thoát ngoài ý muốn, THE SYSTEM SHALL SIGKILL các process con còn sót trong group của agent, phát event `agent_exited` có exit code, đánh dấu agent `stopped`, và cho phép khởi động lại bằng `--resume <session_id>` đã lưu. (platform)
 - R-14: WHEN orchestrator shutdown, THE SYSTEM SHALL đóng stdin của mọi process, chờ tối đa `ORCH_SHUTDOWN_TIMEOUT`, rồi SIGTERM process còn sống. (platform)
 
 ### Lệnh
@@ -102,4 +102,3 @@ Mỗi agent chạy dưới dạng một process `claude -p` giữ stdin mở, n�
 
 | ID | Câu hỏi | Owner | Liên quan |
 |---|---|---|---|
-| Q-7 | SIGINT khi còn prompt xếp hàng thì các prompt đó còn không | spike (case mới) | R-8 |

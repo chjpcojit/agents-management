@@ -1,5 +1,19 @@
 # Changelog — agent-runtime
 
+## v1.4 — 2026-11-02
+
+Kết quả lần chạy spike thứ 3: giới hạn chờ duyệt đã nâng được; SIGINT không hủy được turn mà làm `claude` thoát.
+
+- requirements.md: R-12 viết lại (hủy = SIGTERM/SIGKILL process group, rồi `--resume`); R-13 thêm dọn process con sót; R-16 bỏ marker A-7; bỏ marker và dòng Q-7
+- design.md: mục hủy turn dùng process group và Stop; state machine `running --> stopped: Stop`; bảng state đổi Interrupt thành Stop; test plan thêm `TestStopEndsRunningTurn`, `TestStopKillsChildProcesses`, `TestExitReapsLeftoverChildren`
+- tasks.md: Status D ghi lần 3; tick R-16; đổi item Interrupt thành Stop; T12 mới chờ chạy lại; bỏ item Q-7
+- gherkin/agent-session.feature: scenario R-12 viết lại (dừng, không còn lệnh sót, resume nhớ hội thoại)
+- assumptions.md / tech-debt.md: A-7 confirmed; thêm TD-7 (Windows chưa có process group)
+- Resolved: Q-7 → không còn áp dụng: hủy giờ kết thúc process nên prompt xếp hàng bị bỏ theo, runner không giữ bộ đếm (Đức chọn "Tắt process rồi resume", 2026-11-02)
+- Upstream: claude 2.1.316
+- Reason: report lần 3 `docs/spike-report.md` (Đức, 2026-11-02): T7 PASS, T12 FAIL (SIGINT → exit 0, không `result`)
+- Follow-ups outside this folder: none
+
 ## v1.3 — 2026-11-02
 
 Kết quả lần chạy spike thứ 2 trên máy Đức: inbox không còn bị bypass; phát hiện Claude Code chỉ chờ một lệnh duyệt 60 giây.

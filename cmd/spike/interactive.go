@@ -20,7 +20,7 @@ import (
 
 const interactiveHelp = `commands:
   <text>                 send a prompt (queued by Claude Code while a turn runs)
-  :int                   interrupt the running turn (SIGINT)
+  :stop                  cancel: stop the agent and its commands (resume with -resume)
   :pending               list pending approvals
   :allow <id>            allow an approval (id prefix is enough)
   :deny <id> [reason]    deny an approval
@@ -140,10 +140,13 @@ func handleLine(ctx context.Context, h *harness, ag *agent, line string, printf 
 		printf("%s", interactiveHelp)
 	case ":sid":
 		printf("session=%s pid=%d state=%s\n", ag.r.SessionID(), ag.r.PID(), ag.r.State())
-	case ":int":
-		if err := ag.r.Interrupt(); err != nil {
-			printf("interrupt failed: %v\n", err)
+	case ":stop":
+		sctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		if err := ag.r.Stop(sctx); err != nil {
+			printf("stop failed: %v\n", err)
 		}
+		printf("stopped; continue with: go run ./cmd/spike run -resume %s -dir <same dir>\n", ag.r.SessionID())
 	case ":pending":
 		list, err := h.approvals.Pending(ctx)
 		if err != nil {
