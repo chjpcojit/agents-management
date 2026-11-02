@@ -182,6 +182,25 @@ func (a *Approval) Expire(now time.Time) bool {
 	return true
 }
 
+// Abandon ends a pending approval whose requester stopped waiting (the agent timed out or exited).
+// It resolves as expired, i.e. deny, so a later decision cannot unblock anything. It reports whether the state changed.
+//
+// Abandon kết thúc approval pending khi bên yêu cầu đã bỏ chờ (agent timeout hoặc đã thoát).
+// Kết quả là expired, tức deny, nên quyết định đến sau không mở khóa được gì. Trả về true nếu trạng thái thay đổi.
+func (a *Approval) Abandon(now time.Time, reason string) bool {
+	if a.Status != ApprovalPending {
+		return false
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "requester stopped waiting, denied by default"
+	}
+	a.Status = ApprovalExpired
+	a.DecidedBy = "system"
+	a.DecidedAt = now.UTC()
+	a.Reason = reason
+	return true
+}
+
 // IsAllowed reports whether the agent may proceed. Every status except allowed means no.
 // IsAllowed cho biết agent có được tiếp tục không. Mọi trạng thái trừ allowed đều là không.
 func (a Approval) IsAllowed() bool {

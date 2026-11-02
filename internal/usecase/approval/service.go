@@ -104,6 +104,27 @@ func (s *Service) AwaitDecision(ctx context.Context, id domain.ApprovalID) (doma
 	}
 }
 
+// Abandon expires a pending approval at once because its requester stopped waiting. A terminal
+// approval is returned unchanged. Callers usually pass a fresh context: the request context is gone.
+//
+// Abandon cho approval pending hết hạn ngay vì bên yêu cầu đã bỏ chờ. Approval đã ở trạng thái cuối
+// được trả về nguyên vẹn. Caller thường truyền context mới vì context của request đã hết.
+func (s *Service) Abandon(ctx context.Context, id domain.ApprovalID, reason string) (domain.Approval, error) {
+	now := s.clock.Now()
+	var changed bool
+	a, err := s.repo.Update(ctx, id, func(cur *domain.Approval) error {
+		changed = cur.Abandon(now, reason)
+		return nil
+	})
+	if err != nil {
+		return domain.Approval{}, fmt.Errorf("abandon approval %s: %w", id, err)
+	}
+	if changed {
+		s.log.InfoContext(ctx, "approval abandoned", slog.String("approval_id", string(id)))
+	}
+	return a, nil
+}
+
 // Pending lists every pending approval, oldest deadline first.
 // Pending liệt kê mọi approval đang pending, deadline cũ nhất trước.
 func (s *Service) Pending(ctx context.Context) ([]domain.Approval, error) {

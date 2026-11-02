@@ -160,6 +160,24 @@ func TestAwaitDecisionExpiresByItself(t *testing.T) {
 	}
 }
 
+func TestAbandonEndsPendingOnly(t *testing.T) {
+	svc, _ := newService(t)
+	ctx := context.Background()
+	a, _ := svc.Request(ctx, toolRequest())
+	got, err := svc.Abandon(ctx, a.ID, "agent timed out")
+	if err != nil || got.Status != domain.ApprovalExpired || got.Reason != "agent timed out" {
+		t.Fatalf("want expired, got %+v err %v", got, err)
+	}
+	if _, err := svc.Decide(ctx, a.ID, domain.DecisionAllow, "duc", ""); !errors.Is(err, domain.ErrApprovalAlreadyDecided) {
+		t.Fatalf("a decision after abandon must fail, got %v", err)
+	}
+	b, _ := svc.Request(ctx, toolRequest())
+	_, _ = svc.Decide(ctx, b.ID, domain.DecisionDeny, "duc", "no")
+	if got, _ := svc.Abandon(ctx, b.ID, ""); got.Status != domain.ApprovalDenied {
+		t.Fatalf("abandon must keep a decided approval, got %s", got.Status)
+	}
+}
+
 func TestAwaitDecisionHonoursContext(t *testing.T) {
 	svc, _ := newService(t)
 	a, _ := svc.Request(context.Background(), toolRequest())

@@ -45,7 +45,10 @@ Mỗi agent chạy dưới dạng một process `claude -p` giữ stdin mở, n�
   - on `denied`: trả deny kèm reason;
   - on `expired`: trả deny với reason "không có người duyệt trước hạn".
   Input đã xác nhận ở T8: `tool_name`, `input`, `tool_use_id`. Output allow `{"behavior":"allow","updatedInput":{...}}` đã xác nhận ở T8, T15.
-  > ⚠️ Not confirmed: output deny `{"behavior":"deny","message":...}` và Claude Code có timeout tool call khi chờ lâu không — T6, T7 chưa chạy được vì Bash bị rule của owner duyệt thẳng (xem SEC-5). (Q-2, Q-5)
+  Output deny `{"behavior":"deny","message":...}` đã xác nhận ở T6 (lần 2): Claude nhận nguyên văn lý do và không retry.
+- R-16: THE SYSTEM SHALL đặt `timeout` của MCP server orchestrator trong `--mcp-config` bằng deadline duyệt cộng 30 giây, vì mặc định Claude Code bỏ lệnh gọi duyệt sau 60 giây (T7 lần 2). (platform)
+  > ⚠️ Not confirmed: field `timeout` (ms) của server type http có trong schema config của CLI 2.1.316 nhưng chưa có trong docs công khai — kiểm ở lần chạy lại T7. (A-7)
+- R-17: IF Claude Code hủy lệnh gọi `approval_prompt` trước khi có quyết định, THEN THE SYSTEM SHALL chuyển approval sang `expired` ngay với `decided_by = system`, để inbox không còn yêu cầu không ai chờ và quyết định đến sau bị từ chối. (platform)
 - R-11: IF MCP server không sẵn sàng khi agent khởi động, THEN THE SYSTEM SHALL không spawn agent và báo lỗi readiness. (platform)
 
 ### Dừng và khôi phục
@@ -66,7 +69,7 @@ Mỗi agent chạy dưới dạng một process `claude -p` giữ stdin mở, n�
 - SEC-3: THE SYSTEM SHALL không log prompt, tool input hay tool output; event lưu DB thuộc feature audit sau.
 - SEC-4: THE SYSTEM SHALL bind MCP server vào loopback, cấp mỗi agent một URL `/mcp/<agent_id>` và một bearer token ngẫu nhiên 256 bit, kiểm token trên mọi request, và trả 401 khi token sai, agent lạ hoặc agent đã unregister. (platform)
 - SEC-5: THE SYSTEM SHALL đặt các tool built-in làm thay đổi máy, ra mạng, sinh việc hoặc lên lịch (`AskTools`: `Bash`, `Edit`, `Write`, `WebFetch`, `Task`, `Skill`, `CronCreate`, …) vào `permissions.ask` của `--settings`, để rule `allow` trong `~/.claude/settings.json` của owner không duyệt thẳng thay cho inbox (`ask` thắng `allow`). (platform)
-  > ⚠️ Not confirmed: rule `ask` từ `--settings` ở `-p` có chuyển sang `--permission-prompt-tool` không — kiểm ở lần chạy lại T5–T7. (A-6)
+  Đã xác nhận ở T5, T6 lần 2: yêu cầu Bash đi qua `approval_prompt` (`permission_decision.source` = `user_temporary` / `user_reject`).
 
 ## Contract surface
 
@@ -74,7 +77,7 @@ Mỗi agent chạy dưới dạng một process `claude -p` giữ stdin mở, n�
 |---|---|---|---|
 | CLI | `claude -p` flags | Anthropic | [CLI reference](https://code.claude.com/docs/en/cli-reference.md), pin version khi spike |
 | Stream | stream-json in/out | Anthropic | [Headless](https://code.claude.com/docs/en/headless.md) |
-| MCP tool | `approval_prompt` | this feature | input `tool_name`, `input`, `tool_use_id` (T8); output text JSON `{behavior, updatedInput \| message}`, deny ⚠️ Q-2 |
+| MCP tool | `approval_prompt` | this feature | input `tool_name`, `input`, `tool_use_id` (T8); output text JSON `{behavior, updatedInput \| message}` (T6, T8) |
 | MCP tool | `send_message` | feature office-bus (sau) | stub (TD-3): `to`, `text` ≤ 4000 ký tự, trả `queued` |
 | Make | `spike-preflight`, `spike`, `spike-test` | this feature | biến `SPIKE_CLAUDE`, `SPIKE_MODEL`, `SPIKE_DIR`, `SPIKE_ONLY`, `SPIKE_T7_WAIT` |
 | Env var | `ANTHROPIC_API_KEY` | Anthropic | phải bị loại khỏi env con (R-2) |
@@ -99,6 +102,4 @@ Mỗi agent chạy dưới dạng một process `claude -p` giữ stdin mở, n�
 
 | ID | Câu hỏi | Owner | Liên quan |
 |---|---|---|---|
-| Q-2 | Output deny của permission prompt tool (input và allow đã xác nhận) | chạy lại T6 | R-10, A-3 |
-| Q-5 | MCP tool chờ duyệt vài phút có bị Claude Code timeout không; nếu có thì đó là trần của `ORCH_APPROVAL_TIMEOUT` | chạy lại T7 | R-10 |
 | Q-7 | SIGINT khi còn prompt xếp hàng thì các prompt đó còn không | spike (case mới) | R-8 |

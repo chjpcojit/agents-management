@@ -88,6 +88,12 @@ type Config struct {
 	SessionID string
 	Resume    string
 
+	// ToolTimeout is the longest Claude Code waits on one call to the orchestrator MCP server, so it
+	// must exceed the approval deadline. Zero keeps Claude Code's default (60s seen in spike T7).
+	// ToolTimeout là thời gian tối đa Claude Code chờ một lệnh gọi tới MCP server của orchestrator, nên
+	// phải dài hơn deadline duyệt. Bằng 0 thì giữ mặc định của Claude Code (60s, thấy ở spike T7).
+	ToolTimeout time.Duration
+
 	// FirstEventTimeout bounds the wait for any output after a prompt is sent. Default 90s.
 	// FirstEventTimeout giới hạn thời gian chờ output đầu tiên sau khi gửi prompt. Mặc định 90s.
 	FirstEventTimeout time.Duration
@@ -243,14 +249,20 @@ func Start(cfg Config, log *slog.Logger) (*Runner, error) {
 // BuildArgs returns the fixed flag set for an agent. Exported for tests and the preflight report.
 // BuildArgs trả về bộ flag cố định cho một agent. Export để test và để in trong preflight.
 func BuildArgs(cfg Config) ([]string, error) {
+	server := map[string]any{
+		"type":    "http",
+		"url":     cfg.MCPURL,
+		"headers": map[string]string{"Authorization": "Bearer " + cfg.MCPToken},
+	}
+	if cfg.ToolTimeout > 0 {
+		// Per-server tool-call timeout in ms. Without it Claude Code drops a waiting approval after 60s (spike T7).
+		// ⚠️ Field is in the CLI's config schema but not in the public docs (A-7).
+		// Timeout gọi tool theo server, đơn vị ms. Không có nó Claude Code bỏ approval đang chờ sau 60s (spike T7).
+		// ⚠️ Field có trong schema config của CLI nhưng chưa có trong docs công khai (A-7).
+		server["timeout"] = cfg.ToolTimeout.Milliseconds()
+	}
 	mcpConfig, err := json.Marshal(map[string]any{
-		"mcpServers": map[string]any{
-			MCPServerName: map[string]any{
-				"type":    "http",
-				"url":     cfg.MCPURL,
-				"headers": map[string]string{"Authorization": "Bearer " + cfg.MCPToken},
-			},
-		},
+		"mcpServers": map[string]any{MCPServerName: server},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("encode mcp config: %w", err)

@@ -117,6 +117,13 @@ func TestBuildArgs(t *testing.T) {
 	if slices.Contains(args, "--bare") {
 		t.Error("--bare must never be set: it ignores the subscription login")
 	}
+	if strings.Contains(joined, `"timeout"`) {
+		t.Error("no tool timeout unless configured")
+	}
+	args, _ = claudecli.BuildArgs(claudecli.Config{SessionID: sid, MCPURL: "u", MCPToken: "t", ToolTimeout: 5*time.Minute + 30*time.Second})
+	if !strings.Contains(strings.Join(args, " "), `"timeout":330000`) {
+		t.Error("tool timeout must be passed in ms in the mcp config")
+	}
 	args, _ = claudecli.BuildArgs(claudecli.Config{Resume: sid, MCPURL: "u", MCPToken: "t"})
 	if !strings.Contains(strings.Join(args, " "), "--resume "+sid) {
 		t.Error("resume flag missing")

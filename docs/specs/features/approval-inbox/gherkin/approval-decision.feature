@@ -1,4 +1,4 @@
-# Source: ../requirements.md v1.2
+# Source: ../requirements.md v1.3
 Feature: Quyết định yêu cầu duyệt
 
   Background:
@@ -136,3 +136,9 @@ Feature: Quyết định yêu cầu duyệt
   Scenario: Kết nối rảnh vẫn được giữ
     Given người dùng đang mở inbox và không có yêu cầu mới trong 60 giây
     Then kết nối vẫn mở
+
+  # R-19
+  Scenario: Yêu cầu bị bỏ chờ thì đóng ngay
+    Given "agent-a" có một yêu cầu đang chờ duyệt
+    When "agent-a" ngừng chờ yêu cầu đó
+    Then yêu cầu hết hạn ngay với kết quả từ chối

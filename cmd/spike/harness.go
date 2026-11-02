@@ -223,6 +223,9 @@ func (h *harness) StartAgent(spec agentSpec) (*agent, error) {
 		Model:    h.opts.Model,
 		MCPURL:   mcpbus.AgentURL(h.baseURL, domain.AgentID(spec.ID)),
 		MCPToken: token,
+		// Claude Code must wait longer than our own deadline, so the inbox, not the CLI, decides.
+		// Claude Code phải chờ lâu hơn deadline của mình, để inbox quyết định chứ không phải CLI.
+		ToolTimeout: h.opts.ApprovalTimeout + 30*time.Second,
 	}
 	if spec.Resume != "" {
 		cfg.Resume = spec.Resume

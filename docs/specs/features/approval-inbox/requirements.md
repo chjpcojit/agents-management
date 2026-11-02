@@ -41,6 +41,7 @@ Inbox duyệt tập trung cho mọi agent: agent xin chạy tool hoặc chủ đ
 
 - R-10: WHILE orchestrator đang chạy, THE SYSTEM SHALL quét mỗi 1 giây và chuyển mọi approval `pending` đã tới deadline sang `expired`, với `decided_by = system`. (platform)
 - R-11: IF một bản ghi lỗi khi quét, THEN THE SYSTEM SHALL tiếp tục với các bản ghi còn lại và log lỗi. (platform)
+- R-19: WHEN bên yêu cầu bỏ chờ một approval `pending` (agent timeout hoặc thoát), THE SYSTEM SHALL chuyển approval sang `expired` ngay với `decided_by = system` và reason, và giữ nguyên approval đã ở trạng thái cuối. (platform)
 
 ### Inbox cho user (Prospective)
 

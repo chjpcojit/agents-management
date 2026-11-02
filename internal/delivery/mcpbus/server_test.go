@@ -153,6 +153,43 @@ func TestApprovalPromptExpiresToDeny(t *testing.T) {
 	}
 }
 
+// Claude Code times out a waiting permission call after about 60s (spike T7); the approval must not stay pending.
+// Claude Code cho lệnh gọi duyệt đang chờ timeout sau khoảng 60s (spike T7); approval không được treo pending.
+func TestCancelledCallAbandonsApproval(t *testing.T) {
+	f := newFixture(t, time.Minute)
+	tok, _ := f.bus.Register("agent-a")
+	cs, _ := f.connect(t, "agent-a", tok)
+	defer func() { _ = cs.Close() }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = cs.CallTool(ctx, &mcp.CallToolParams{
+			Name:      mcpbus.ToolApprovalPrompt,
+			Arguments: map[string]any{"tool_name": "Bash", "input": map[string]any{"command": "touch x"}},
+		})
+	}()
+	a := <-f.opened
+	cancel()
+	<-done
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		got, err := f.svc.AwaitDecision(context.Background(), a.ID)
+		if err == nil && got.Status == domain.ApprovalExpired {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("approval still %s after the caller gave up", got.Status)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, err := f.svc.Decide(context.Background(), a.ID, domain.DecisionAllow, "duc", ""); err == nil {
+		t.Fatal("a late allow must be rejected")
+	}
+}
+
 func TestRejectsWrongTokenAndUnknownAgent(t *testing.T) {
 	f := newFixture(t, time.Minute)
 	tokA, _ := f.bus.Register("agent-a")

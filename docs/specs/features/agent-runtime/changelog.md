@@ -1,5 +1,19 @@
 # Changelog — agent-runtime
 
+## v1.3 — 2026-11-02
+
+Kết quả lần chạy spike thứ 2 trên máy Đức: inbox không còn bị bypass; phát hiện Claude Code chỉ chờ một lệnh duyệt 60 giây.
+
+- requirements.md: R-10 ghi output deny đã xác nhận; thêm R-16 (`timeout` trong mcp-config), R-17 (approval bị bỏ khi Claude hủy lệnh gọi); SEC-5 bỏ marker A-6; bỏ Q-2, Q-5 khỏi open questions
+- design.md: flow duyệt quyền ghi `Abandon` khi lệnh gọi bị hủy và giới hạn chờ của Claude Code; test plan thêm R-16, R-17
+- tasks.md: Status D ghi lần 2; tick SEC-5, `approval_prompt`, R-17; thêm item R-16 và T12 chờ chạy lại
+- gherkin/agent-session.feature: thêm scenario R-16, R-17
+- assumptions.md / tech-debt.md: A-3, A-6 confirmed; thêm A-7; tech-debt no change needed, checked
+- Resolved: Q-2 → deny `{behavior, message}` hoạt động, Claude không retry (T6, 2026-11-02); Q-5 → Claude Code mặc định bỏ lệnh gọi sau 60s với "The operation timed out", tool không chạy (T7, 2026-11-02)
+- Upstream: claude 2.1.316
+- Reason: report lần 2 `docs/spike-report.md` (Đức, 2026-11-02)
+- Follow-ups outside this folder: approval-inbox v1.3 (R-19 `Abandon`)
+
 ## v1.2 — 2026-11-01
 
 Kết quả lần chạy spike đầu tiên trên máy Đức: trả lời Q-1, Q-3, Q-4, Q-6, phát hiện approval bị bypass bởi settings của owner.

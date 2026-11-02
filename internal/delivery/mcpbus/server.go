@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -40,6 +41,7 @@ const PathPrefix = "/mcp/"
 type Approvals interface {
 	Request(ctx context.Context, in approval.RequestInput) (domain.Approval, error)
 	AwaitDecision(ctx context.Context, id domain.ApprovalID) (domain.Approval, error)
+	Abandon(ctx context.Context, id domain.ApprovalID, reason string) (domain.Approval, error)
 }
 
 // MessageSink receives office bus messages. Stub until the office-bus feature exists.
@@ -235,6 +237,15 @@ func (s *Server) approvalPrompt(agent domain.AgentID) mcp.ToolHandlerFor[map[str
 		decided, err := s.approvals.AwaitDecision(ctx, a.ID)
 		switch {
 		case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+			// Claude Code gave up on the call (its tool timeout, spike T7) or the agent went away.
+			// End the approval now so the inbox never shows a request nobody is waiting on.
+			// Claude Code đã bỏ lệnh gọi (timeout tool, spike T7) hoặc agent đã đi. Kết thúc approval
+			// ngay để inbox không hiện yêu cầu mà không còn ai chờ.
+			actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			if _, aerr := s.approvals.Abandon(actx, a.ID, "agent stopped waiting, denied by default"); aerr != nil {
+				s.log.WarnContext(actx, "abandon approval failed", slog.String("approval_id", string(a.ID)), slog.Any("error", aerr))
+			}
+			cancel()
 			s.log.InfoContext(ctx, "approval wait cancelled", slog.String("approval_id", string(a.ID)))
 			return deny("approval wait was cancelled"), nil, nil
 		case err != nil:

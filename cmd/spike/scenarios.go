@@ -395,6 +395,10 @@ func runT4(ctx context.Context, env scenarioEnv, c *CaseResult) error {
 	return nil
 }
 
+// longCommand runs for about n seconds. Claude Code blocks a standalone `sleep` (spike T12 run 2), so use ping.
+// longCommand chạy khoảng n giây. Claude Code chặn lệnh `sleep` đứng riêng (spike T12 lần 2), nên dùng ping.
+func longCommand(n int) string { return fmt.Sprintf("ping -c %d 127.0.0.1", n) }
+
 // bashPrompt asks for exactly one Bash call. / bashPrompt yêu cầu đúng một lần gọi Bash.
 func bashPrompt(command string) string {
 	return "Run exactly this shell command with the Bash tool, once, and nothing else: " + command +
@@ -549,13 +553,18 @@ func runT7(ctx context.Context, env scenarioEnv, c *CaseResult) error {
 		c.fail("approval_prompt was never called")
 		return nil
 	}
-	fctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	// The approval must be terminal by now: expired by our deadline, or abandoned when Claude gave up.
+	// Approval phải ở trạng thái cuối: hết hạn theo deadline của mình, hoặc bị bỏ khi Claude bỏ chờ.
+	fctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	final, err := h.Final(fctx, opened[0].ID)
-	if err != nil {
-		c.fail("read final approval: %v", err)
-	} else if final.Status != domain.ApprovalExpired {
+	switch {
+	case err != nil:
+		c.fail("approval still pending after the turn ended: %v", err)
+	case final.Status != domain.ApprovalExpired:
 		c.fail("approval status %s, expected expired", final.Status)
+	default:
+		c.note("approval ended %s after it opened: %s", final.DecidedAt.Sub(final.CreatedAt).Round(time.Second), final.Reason)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "spike_timeout.txt")); err == nil {
 		c.fail("file exists although nobody approved")
@@ -564,8 +573,8 @@ func runT7(ctx context.Context, env scenarioEnv, c *CaseResult) error {
 	for _, m := range msgs {
 		for _, b := range m.Msg.Blocks {
 			if b.Type == "tool_result" && b.IsError && m.At.Sub(opened[0].CreatedAt) < env.T7Wait-2*time.Second {
-				c.note("Q-5: Claude Code ended the tool call after %s, before our deadline: that is the ceiling for ORCH_APPROVAL_TIMEOUT",
-					m.At.Sub(opened[0].CreatedAt).Round(time.Second))
+				c.fail("Q-5: Claude Code ended the tool call after %s, before our %s deadline: the mcp-config timeout did not raise the ceiling (A-7)",
+					m.At.Sub(opened[0].CreatedAt).Round(time.Second), env.T7Wait)
 			}
 		}
 	}
@@ -686,7 +695,7 @@ func runT12(ctx context.Context, env scenarioEnv, c *CaseResult) error {
 	}
 	defer done()
 	from := a.Len()
-	if err := a.r.Send(bashPrompt("sleep 60")); err != nil {
+	if err := a.r.Send(bashPrompt(longCommand(60))); err != nil {
 		return err
 	}
 	wctx, cancel := context.WithTimeout(ctx, env.TurnLimit)
@@ -698,6 +707,16 @@ func runT12(ctx context.Context, env scenarioEnv, c *CaseResult) error {
 		return nil
 	}
 	time.Sleep(5 * time.Second)
+	// The point of T12 is to cut a command that is still running; if it already returned, the case proves nothing.
+	// Mục tiêu của T12 là cắt một lệnh đang chạy; nếu lệnh đã trả kết quả thì case không chứng minh được gì.
+	for _, m := range a.Since(from) {
+		for _, b := range m.Msg.Blocks {
+			if b.Type == "tool_result" {
+				c.fail("the command returned before SIGINT (is_error=%t): %s", b.IsError, truncate(string(m.Msg.Raw), 300))
+				return nil
+			}
+		}
+	}
 	intAt := time.Now()
 	if err := a.r.Interrupt(); err != nil {
 		c.fail("interrupt: %v", err)
@@ -782,7 +801,7 @@ func runT14(ctx context.Context, env scenarioEnv, c *CaseResult) error {
 	if err != nil {
 		return err
 	}
-	if err := a.r.Send(bashPrompt("sleep 30")); err != nil {
+	if err := a.r.Send(bashPrompt(longCommand(30))); err != nil {
 		done()
 		return err
 	}

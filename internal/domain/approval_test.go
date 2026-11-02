@@ -114,6 +114,21 @@ func TestExpire(t *testing.T) {
 	}
 }
 
+func TestAbandon(t *testing.T) {
+	a, _ := domain.NewApproval(validParams())
+	if !a.Abandon(t0.Add(time.Second), "") || a.Status != domain.ApprovalExpired || a.IsAllowed() || a.Reason == "" {
+		t.Fatalf("want expired with a reason, got %+v", a)
+	}
+	if a.Abandon(t0.Add(2*time.Second), "again") || a.Reason == "again" {
+		t.Fatal("abandon must not change a terminal approval")
+	}
+	b, _ := domain.NewApproval(validParams())
+	_ = b.Decide(domain.DecisionAllow, "duc", "", t0.Add(time.Second))
+	if b.Abandon(t0.Add(2*time.Second), "x") || !b.IsAllowed() {
+		t.Fatal("abandon must not undo a decision")
+	}
+}
+
 func TestClassifyRisk(t *testing.T) {
 	for tool, want := range map[string]domain.RiskLevel{
 		"Read": domain.RiskLow, "Grep": domain.RiskLow,
