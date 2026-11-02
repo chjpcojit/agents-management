@@ -78,7 +78,7 @@ sequenceDiagram
     H->>S: Decide(allow/deny)
     S-->>M: allowed / denied / expired
     M-->>P: allow | deny + reason
-    Note over M,P: ⚠️ timeout phía Claude Code (Q-5)
+    Note over M,P: Claude Code chờ tối đa `timeout` của server (mặc định 60s, R-16, A-7)
 ```
 
 Step 1 — Nhận tool call (`mcpbus`)
@@ -96,7 +96,7 @@ Step 2 — Chờ quyết định (`mcpbus`)
 - Call: `approval.Service.AwaitDecision`: poll `Get` mỗi 250ms (TD-5), tự `Expire` khi quá deadline.
     - Success (`allowed`) → trả allow.
     - Success (`denied` / `expired`) → trả deny kèm reason.
-    - Failure (MCP request bị hủy phía client) → trả deny, giữ approval cho sweeper expire. Signal: log INFO `approval wait cancelled`.
+    - Failure (Claude Code hủy lệnh gọi, ví dụ hết `timeout` của server) → `Abandon` approval sang `expired` ngay, trả deny. Signal: log INFO `approval abandoned` + `approval_id`.
     - Grouped with: none.
 
 ### Hủy turn, crash, shutdown
@@ -148,6 +148,8 @@ Biến mới dự kiến: `ORCH_CLAUDE_BIN` (path tới `claude`, mặc định 
 | `TestRunnerStateMachine` (multi-turn, busy, garbage, interrupt, crash, kill, auth fail, silent, close) với binary test làm claude giả | R-3, R-4, R-6, R-7, R-12, R-13, R-14 | B | `claudecli` |
 | `TestBuildArgs` (không `--bare`, có `--strict-mcp-config`, settings deny và ask) | R-1, R-9, SEC-2, SEC-5 | B | `claudecli` |
 | `TestSendWhileRunningQueues` | R-8 | B | `claudecli` |
+| `TestBuildArgs` (`timeout` trong mcp-config) | R-16 | B | `claudecli` |
+| `TestAbandon`, `TestAbandonEndsPendingOnly`, `TestCancelledCallAbandonsApproval` | R-17 | B | `domain`, `usecase/approval`, `delivery/mcpbus` |
 | `TestCheckNotBypassedCatchesUserRule` (dòng NDJSON thật từ T5) | SEC-5 | B | `cmd/spike` |
 | `TestApprovalPrompt*`, `TestAuth*`, `TestTwoAgentsRoutedSeparately` | R-10, SEC-4 | B | `delivery/mcpbus` |
 | `TestScenariosAgainstFake`: chạy T1–T15 qua harness thật với claude giả gọi MCP thật | wiring của spike, không phải hành vi Claude | B | `cmd/spike` |

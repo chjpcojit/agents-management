@@ -5,7 +5,7 @@
 | Item | Value |
 |---|---|
 | Overall | In progress |
-| Spec | v1.2 |
+| Spec | v1.3 |
 | Profile | be |
 | Design | design.md |
 | A — static | 2026-11-01: `make lint` → 0 issues; depguard thử import sai domain → platform và usecase → adapter, đều bị báo |
@@ -43,6 +43,8 @@ Verification method: A `make lint`, B `make test`, C `make run` + curl. Môi tr�
 - [ ] Service phát event sau khi lưu thành công — verify: (B) test use case với fake publisher
 - [ ] Handler list + get + decide, map lỗi sang RFC 7807 — verify: (B) `TestListPendingApprovals`, `TestGetApproval`, `TestDecideHandlerStatusMapping`. Không bật ngoài loopback khi TD-3 còn mở
 - [ ] SSE `/events` với heartbeat và `Last-Event-ID` — verify: (B) `TestSSEPublishAndReplay`, (C) curl `-N`
+
+- [x] `Service.Abandon` cho approval bị bỏ chờ (R-19) — verify: (B) `TestAbandon`, `TestAbandonEndsPendingOnly` — v1.3: pass, 2026-11-02
 
 ## Deferred
 

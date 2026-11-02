@@ -1,5 +1,18 @@
 # Changelog — approval-inbox
 
+## v1.3 — 2026-11-02
+
+Thêm đường kết thúc approval khi agent bỏ chờ, theo kết quả spike T7 của agent-runtime.
+
+- requirements.md: thêm R-19
+- design.md: no change needed, checked (flow nằm ở agent-runtime design, bước Chờ quyết định)
+- tasks.md: thêm và tick `Service.Abandon`
+- gherkin/approval-decision.feature: thêm scenario R-19
+- assumptions.md / tech-debt.md: no change needed, checked
+- Upstream: unchanged
+- Reason: spike T7 lần 2: Claude Code bỏ lệnh gọi duyệt sau 60s, approval treo `pending`
+- Follow-ups outside this folder: none
+
 ## v1.2 — 2026-11-01
 
 Hoãn push notification: GĐ1 chỉ duyệt trên web.

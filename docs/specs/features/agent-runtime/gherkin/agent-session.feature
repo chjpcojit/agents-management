@@ -1,4 +1,4 @@
-# Source: ../requirements.md v1.2
+# Source: ../requirements.md v1.3
 @wip
 Feature: Chạy agent qua claude -p
 
@@ -120,3 +120,17 @@ Feature: Chạy agent qua claude -p
     When agent "agent-a" xin chạy một lệnh shell
     Then yêu cầu duyệt xuất hiện trong inbox
     And lệnh chỉ chạy sau khi owner cho phép
+
+  # R-16
+  Scenario: Người duyệt có đủ thời gian của hạn duyệt
+    Given hạn duyệt là 2 phút
+    And agent "agent-a" đang chờ duyệt một lệnh shell
+    When người duyệt cho phép ở phút thứ 1 rưỡi
+    Then lệnh của agent "agent-a" được chạy
+
+  # R-17
+  Scenario: Agent bỏ chờ thì yêu cầu duyệt đóng lại
+    Given agent "agent-a" đang chờ duyệt một lệnh shell
+    When agent "agent-a" ngừng chờ trước khi có người duyệt
+    Then yêu cầu biến khỏi danh sách chờ duyệt với kết quả từ chối
+    And người duyệt bấm cho phép sau đó thì bị báo đã hết hạn

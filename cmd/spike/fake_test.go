@@ -173,8 +173,9 @@ func fakeClaude(args []string) int {
 			switch {
 			case strings.HasPrefix(command, "touch "):
 				_ = os.WriteFile(strings.TrimPrefix(command, "touch "), nil, 0o600)
-			case strings.HasPrefix(command, "sleep "):
-				d, _ := time.ParseDuration(strings.TrimPrefix(command, "sleep ") + "s")
+			case strings.HasPrefix(command, "ping -c "):
+				n := strings.Fields(strings.TrimPrefix(command, "ping -c "))[0]
+				d, _ := time.ParseDuration(n + "s")
 				select {
 				case <-sigint:
 					interrupted = true
