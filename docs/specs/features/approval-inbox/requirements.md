@@ -81,7 +81,8 @@ Inbox duyệt tập trung cho mọi agent: agent xin chạy tool hoặc chủ đ
 ## Out of scope
 
 - Agent gửi yêu cầu vào inbox qua MCP: [agent-runtime](../agent-runtime/requirements.md).
-- Lưu bền (SQLite/Postgres): TD-1.
+- Lưu bền: Postgres qua feature [storage](../storage/requirements.md) (ADR-0002), TD-1.
+- Kênh SSE `/events` dùng chung và envelope event: [event-schema](../event-schema/requirements.md); R-16…R-18 giữ nguyên hành vi, event theo envelope v0.
 - Đánh dấu risk tự động theo pattern lệnh: feature sau; hiện `domain.ClassifyRisk` xếp theo tên tool (đọc là low, còn lại high).
 - Push notification (Web Push, Telegram) và app mobile: hoãn, TD-4.
 

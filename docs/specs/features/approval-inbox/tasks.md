@@ -5,7 +5,7 @@
 | Item | Value |
 |---|---|
 | Overall | In progress |
-| Spec | v1.3 |
+| Spec | v1.4 |
 | Profile | be |
 | Design | design.md |
 | A — static | 2026-11-01: `make lint` → 0 issues; depguard thử import sai domain → platform và usecase → adapter, đều bị báo |
@@ -34,12 +34,12 @@ Verification method: A `make lint`, B `make test`, C `make run` + curl. Môi tr�
 
 - [x] Repository in-memory với `Update` atomic — verify: (B) qua test use case — v1.0: pass, 2026-11-01
 - [x] Sweeper 1s trong `cmd/orchestrator`, dừng theo context — verify: (C) chạy binary, SIGINT, log `stopped` — v1.0: pass, 2026-11-01
-- [ ] Repository SQLite — blocked by TD-1 (chờ chọn driver)
+- [ ] Repository Postgres — làm ở [storage](../storage/tasks.md) Phase 3 (TD-1)
 
 ## Phase 4 — Delivery
 
 - [ ] `api/openapi.yaml` cho `/approvals`, `/approvals/{id}`, `/approvals/{id}/decision`, `/events`, problem body — verify: (A) lint OpenAPI
-- [ ] Port `EventPublisher` + `eventbus/memory` ring buffer — verify: (B) `TestSSEPublishAndReplay`
+- [ ] Port `EventPublisher` + `eventbus/memory` ring buffer — làm ở [event-schema](../event-schema/tasks.md) Phase 2
 - [ ] Service phát event sau khi lưu thành công — verify: (B) test use case với fake publisher
 - [ ] Handler list + get + decide, map lỗi sang RFC 7807 — verify: (B) `TestListPendingApprovals`, `TestGetApproval`, `TestDecideHandlerStatusMapping`. Không bật ngoài loopback khi TD-3 còn mở
 - [ ] SSE `/events` với heartbeat và `Last-Event-ID` — verify: (B) `TestSSEPublishAndReplay`, (C) curl `-N`
