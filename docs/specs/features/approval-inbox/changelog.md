@@ -1,5 +1,20 @@
 # Changelog — approval-inbox
 
+## v1.4 — 2026-11-05
+
+Chuyển lưu bền và kênh SSE sang hai feature mới: storage (Postgres) và event-schema.
+
+- requirements.md: Out of scope trỏ lưu bền sang storage, kênh SSE sang event-schema
+- design.md: Persistence đổi từ SQLite sang Postgres (`FOR UPDATE`)
+- tasks.md: item repository và `eventbus/memory` chuyển sang storage, event-schema
+- gherkin/approval-decision.feature: no change needed, checked
+- assumptions.md: no change needed, checked
+- tech-debt.md: TD-1 Fix trỏ storage
+- Resolved: DB là Postgres local qua docker compose, driver `pgx/v5`, migration `goose` (Đức, 2026-11-05) → ADR-0002
+- Upstream: unchanged
+- Reason: tách feature MVP
+- Follow-ups outside this folder: none
+
 ## v1.3 — 2026-11-02
 
 Thêm đường kết thúc approval khi agent bỏ chờ, theo kết quả spike T7 của agent-runtime.

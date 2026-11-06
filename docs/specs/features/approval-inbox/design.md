@@ -176,7 +176,7 @@ Theo bảng trong [`CLAUDE.md`](../../../../CLAUDE.md#architecture-rules). Chi�
 
 ## Persistence
 
-In-memory (TD-1). Khi chuyển SQLite: bảng `approvals`, `Update` dùng `BEGIN IMMEDIATE` hoặc `UPDATE ... WHERE id = ? AND status = 'pending'` để giữ R-7.
+In-memory (TD-1). Chuyển sang Postgres ở feature [storage](../storage/design.md): bảng `approvals`, `Update` dùng `SELECT … FOR UPDATE` trong transaction để giữ R-7; approval `pending` lúc khởi động lại chuyển `expired` (storage R-14).
 
 ## Config and lifecycle
 

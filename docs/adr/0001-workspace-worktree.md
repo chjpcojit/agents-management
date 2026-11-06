@@ -20,4 +20,4 @@ Owner muốn giao 2 agent làm 2 việc trên cùng một dự án, mỗi agent 
 - Hai agent trên cùng dự án chạy song song an toàn; mỗi PR đi từ branch riêng.
 - Ổ đĩa tăng theo số task cho tới khi owner xóa; chấp nhận ở MVP.
 - Branch trùng tên trong cùng ngày phải được xử lý (thêm hậu tố): để lại cho feature workspace.
-- Spec chi tiết: feature `workspace` (chưa viết). Liên quan: [agent-runtime](../specs/features/agent-runtime/requirements.md), [approval-inbox](../specs/features/approval-inbox/requirements.md).
+- Spec chi tiết: [workspace](../specs/features/workspace/requirements.md). Liên quan: [agent-runtime](../specs/features/agent-runtime/requirements.md), [approval-inbox](../specs/features/approval-inbox/requirements.md).

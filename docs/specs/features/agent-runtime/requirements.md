@@ -35,6 +35,7 @@ Mỗi agent chạy dưới dạng một process `claude -p` giữ stdin mở, n�
 - R-6: IF một dòng stdout không parse được hoặc có `type` lạ, THEN THE SYSTEM SHALL giữ dòng thô trong event `unknown` và không dừng stream. (platform)
 - R-7: WHEN nhận event `result`, THE SYSTEM SHALL chuyển agent về `idle` và lưu `session_id`, cost, usage của turn. (platform)
 - R-8: WHEN user gửi prompt khi agent đang `running`, THE SYSTEM SHALL ghi ngay prompt lên stdin (Claude Code tự xếp hàng và trả một `result` riêng cho mỗi prompt), đếm số prompt chưa có `result`, và chỉ chuyển agent về `idle` khi số đó về 0. (platform)
+  Đường giao việc qua mailbox không dùng hành vi này: scheduler chỉ gửi prompt khi agent `idle` (ADR-0003, agent-supervisor R-2).
 
 ### Duyệt quyền
 
@@ -78,7 +79,7 @@ Mỗi agent chạy dưới dạng một process `claude -p` giữ stdin mở, n�
 | CLI | `claude -p` flags | Anthropic | [CLI reference](https://code.claude.com/docs/en/cli-reference.md), pin version khi spike |
 | Stream | stream-json in/out | Anthropic | [Headless](https://code.claude.com/docs/en/headless.md) |
 | MCP tool | `approval_prompt` | this feature | input `tool_name`, `input`, `tool_use_id` (T8); output text JSON `{behavior, updatedInput \| message}` (T6, T8) |
-| MCP tool | `send_message` | feature office-bus (sau) | stub (TD-3): `to`, `text` ≤ 4000 ký tự, trả `queued` |
+| MCP tool | `send_message` | [agent-mailbox](../agent-mailbox/requirements.md) | stub (TD-3), được thay bằng `ask_agent` |
 | Make | `spike-preflight`, `spike`, `spike-test` | this feature | biến `SPIKE_CLAUDE`, `SPIKE_MODEL`, `SPIKE_DIR`, `SPIKE_ONLY`, `SPIKE_T7_WAIT` |
 | Env var | `ANTHROPIC_API_KEY` | Anthropic | phải bị loại khỏi env con (R-2) |
 | Stream field | `tool_result_meta[].permission_decision` | Anthropic | chưa có docs; `source` + `reason_type` cho biết ai duyệt (T5); spike dùng để phát hiện bypass |

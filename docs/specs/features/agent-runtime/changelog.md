@@ -1,5 +1,19 @@
 # Changelog — agent-runtime
 
+## v1.6 — 2026-11-05
+
+Nối agent-runtime với các feature MVP mới và thêm 4 case spike cho câu hỏi mở của chúng.
+
+- requirements.md: ghi chú dưới R-8 (đường mailbox không ghi chồng prompt); `send_message` chuyển sang agent-mailbox
+- design.md: no change needed, checked
+- tasks.md: port `AgentRuntime` chuyển sang agent-supervisor; thêm case spike T16…T19
+- gherkin/agent-session.feature: no change needed, checked
+- assumptions.md: no change needed, checked
+- tech-debt.md: Fix của TD-3 (agent-mailbox), TD-4 (agent-supervisor)
+- Upstream: unchanged
+- Reason: tách feature MVP; ADR-0003
+- Follow-ups outside this folder: none
+
 ## v1.5 — 2026-11-02
 
 Lần chạy spike thứ 4 xác nhận cách hủy mới: dừng process group không để lại lệnh mồ côi và resume giữ hội thoại.

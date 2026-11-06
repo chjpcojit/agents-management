@@ -5,7 +5,7 @@
 | Item | Value |
 |---|---|
 | Overall | In progress (spike xong trên máy owner; còn port `AgentRuntime` và golden testdata thật) |
-| Spec | v1.5 |
+| Spec | v1.6 |
 | Profile | be |
 | Design | design.md |
 | A — static | 2026-11-01: `make lint` → 0 issues |
@@ -21,7 +21,7 @@ Verification method: A `make lint`, B `make test`, D `make spike-test` trên má
 
 ## Phase 1 — Port và decoder
 
-- [ ] Port `AgentRuntime`, `RuntimeEvent` — verify: (A) `make lint` — để sau spike, khi Q-1…Q-6 có câu trả lời (TD-4)
+- [ ] Port `AgentRuntime`, `RuntimeEvent` — làm ở [agent-supervisor](../agent-supervisor/tasks.md) Phase 1 (TD-4)
 - [x] Decoder stream-json, giữ dòng lạ thành `unknown` — verify: (B) `TestDecodeGolden` — v1.1: pass, 2026-11-01
 
 ## Phase 2 — Runner
@@ -46,6 +46,13 @@ Verification method: A `make lint`, B `make test`, D `make spike-test` trên má
 - [x] Approval bị bỏ khi Claude hủy lệnh gọi (R-17) — verify: (B) `TestAbandon`, `TestAbandonEndsPendingOnly`, `TestCancelledCallAbandonsApproval` — v1.3: pass, 2026-11-02
 - [x] T12: Stop giữa lệnh `ping`, không còn process mồ côi, resume nhớ hội thoại — verify: (B) `TestScenariosAgainstFake`, (D) `SPIKE_ONLY=T12,T14 make spike-test` — v1.5: pass, 2026-11-02
 - [ ] Thay golden testdata bằng mẫu thật — verify: (B) `TestDecodeGolden`
+
+## Phase spike bổ sung
+
+- [ ] Case T16: rule `WebFetch(domain:x)` allow có thắng `ask` chung không — verify: (D) `make spike-test SPIKE_ONLY=T16` (data-access Q-1)
+- [ ] Case T17: rule path cho thư mục `--add-dir` ở `-p` — verify: (D) `SPIKE_ONLY=T17` (data-access Q-2)
+- [ ] Case T18: tín hiệu rate limit / hết quota trong stream-json — verify: (D) `SPIKE_ONLY=T18` (concurrency-quota Q-1)
+- [ ] Case T19: `--max-turns` với stdin giữ mở — verify: (D) `SPIKE_ONLY=T19` (agent-supervisor Q-1)
 
 ## Deferred
 
